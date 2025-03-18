@@ -1,5 +1,6 @@
 from typing import Dict, Any, List, Optional
 import json
+import logging
 
 class MessageManager:
     """Manages message formatting for different LLM providers."""
@@ -240,4 +241,51 @@ Use proper markdown formatting."""
             "task": "Analyze these files and return them in optimal processing order"
         }, indent=2)
         
-        return MessageManager.create_system_user_messages(system_content, user_content) 
+        return MessageManager.create_system_user_messages(system_content, user_content)
+    
+    @staticmethod
+    def check_and_truncate_messages(messages: List[Dict[str, str]], token_counter, model_name: str) -> List[Dict[str, str]]:
+        """Check if messages exceed token limit and truncate if needed."""
+        will_exceed, token_count = token_counter.will_exceed_limit(messages, model_name)
+        
+        if not will_exceed:
+            return messages
+        
+        # If we exceed the limit, we need to truncate the user message content
+        # System message is usually shorter and more important for context
+        truncated_messages = messages.copy()
+        
+        # First try with the new intelligent reduction method
+        for i, message in enumerate(truncated_messages):
+            if message["role"] == "user":
+                # Use the new intelligent reduction method
+                truncated_content = token_counter.handle_oversized_input(
+                    message["content"], 
+                    target_percentage=0.8
+                )
+                truncated_messages[i]["content"] = truncated_content
+                
+                # Check if we're now under the limit
+                still_exceeds, new_count = token_counter.will_exceed_limit(truncated_messages, model_name)
+                if not still_exceeds:
+                    logging.info(f"Intelligently reduced message from {token_count} to {new_count} tokens")
+                    return truncated_messages
+        
+        # If intelligent reduction wasn't enough, fall back to simple truncation
+        for i, message in enumerate(truncated_messages):
+            if message["role"] == "user":
+                # Get the effective limit for this message
+                # We'll use 90% of the model's limit minus the tokens from other messages
+                other_messages = [m for j, m in enumerate(messages) if j != i]
+                other_tokens = token_counter.count_message_tokens(other_messages)
+                model_limit = token_counter.get_token_limit(model_name)
+                effective_limit = int(model_limit * 0.9) - other_tokens
+                
+                # Truncate the content
+                truncated_content = token_counter.truncate_text(message["content"], effective_limit)
+                truncated_messages[i]["content"] = truncated_content
+                
+                logging.warning(f"Forced to truncate message to {effective_limit} tokens")
+                break  # Only truncate one message (the user message)
+        
+        return truncated_messages 

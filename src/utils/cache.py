@@ -114,15 +114,25 @@ def hash_path(path: Path) -> str:
 class CacheManager:
     """Manages caching of file summaries."""
     
-    def __init__(self, enabled: bool = True, repo_identifier: str = None):
+    def __init__(self, enabled: bool = True, repo_identifier: str = None, repo_path: Optional[Path] = None, config: Optional[Dict[str, Any]] = None):
         self.enabled = enabled
         self.repo_identifier = repo_identifier
         self.debug = False  # Add debug flag
-        self.ttl = 24 * 60 * 60  # Default TTL: 24 hours in seconds
-        self._repo_path = None  # Add repo_path property
+        self._repo_path = repo_path  # Store the repository path
         
-        # Create cache directory if it doesn't exist
-        self.cache_dir = Path.home() / '.readme_generator_cache'
+        # Get cache configuration
+        self.cache_config = config.get('cache', {}) if config else {}
+        cache_location = self.cache_config.get('location', 'repo')
+        cache_dir_name = self.cache_config.get('directory', '.cache')
+        
+        # Create cache directory based on location setting
+        if cache_location == 'home' or not repo_path:
+            # Use user's home directory
+            self.cache_dir = Path.home() / '.readme_generator_cache'
+        else:
+            # Use repository path with configured directory name
+            self.cache_dir = repo_path / cache_dir_name
+            
         os.makedirs(self.cache_dir, exist_ok=True)
         
         # Initialize repo cache directory and db path
@@ -151,6 +161,10 @@ class CacheManager:
         
     def get_repo_cache_dir(self, repo_path: Optional[Path] = None) -> Path:
         """Get the cache directory for a repository."""
+        # If repo_path is not provided, use the stored repo_path
+        if not repo_path and self._repo_path:
+            repo_path = self._repo_path
+            
         if self.repo_identifier:
             # Use stable identifier (for GitHub repos)
             # Normalize the identifier to be safe for all filesystems
@@ -160,22 +174,40 @@ class CacheManager:
             if self.debug:
                 print(f"Using normalized cache directory name: {safe_id}")
             
-            return self.cache_dir / safe_id
+            # Determine cache directory based on whether we're using home or repo location
+            # This is determined by where self.cache_dir is set in __init__
+            if str(self.cache_dir).startswith(str(Path.home())):
+                # Using home directory
+                return self.cache_dir / safe_id
+            else:
+                # Using repository directory
+                if repo_path:
+                    cache_dir_name = self.cache_config.get('directory', '.cache')
+                    return repo_path / cache_dir_name / safe_id
+                else:
+                    return self.cache_dir / safe_id
         else:
             # Use repo path as before
             if not repo_path:
                 raise ValueError("Repository path is required when no repo identifier is provided")
-            repo_name = repo_path.name
-            repo_hash = hash_path(repo_path)
-            
-            # Normalize the path for filesystem compatibility
-            safe_name = re.sub(r'[<>:"|?*]', '_', repo_name)
-            safe_dir = f"{safe_name}_{repo_hash}"
-            
-            if self.debug:
-                print(f"Using normalized cache directory name: {safe_dir}")
-            
-            return self.cache_dir / safe_dir
+                
+            # Determine cache directory based on whether we're using home or repo location
+            if str(self.cache_dir).startswith(str(Path.home())):
+                # Using home directory - create a subdirectory based on repo name
+                repo_name = repo_path.name
+                repo_hash = hash_path(repo_path)
+                safe_name = re.sub(r'[<>:"|?*]', '_', repo_name)
+                safe_dir = f"{safe_name}_{repo_hash}"
+                return self.cache_dir / safe_dir
+            else:
+                # Using repository directory
+                cache_dir_name = self.cache_config.get('directory', '.cache')
+                cache_dir = repo_path / cache_dir_name
+                
+                if self.debug:
+                    print(f"Using repository cache directory: {cache_dir}")
+                
+                return cache_dir
             
     def clear_repo_cache(self):
         """Clear the cache for the current repository."""
@@ -183,9 +215,20 @@ class CacheManager:
             return
             
         try:
+            # Clear the database
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute('DELETE FROM file_cache')
+                
+            # Vacuum the database to reclaim space
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute('VACUUM')
+                
             print(f"Cache cleared for repository")
+            
+            # Log the location of the cleared cache
+            if self._repo_path:
+                cache_dir_name = self.cache_config.get('directory', '.cache')
+                print(f"Cache location: {self._repo_path / cache_dir_name}")
         except Exception as e:
             logging.warning(f"Failed to clear cache: {e}")
             
@@ -398,10 +441,38 @@ class CacheManager:
             print(f"Warning: Could not save cache: {e}") 
 
     @classmethod
-    def clear_all_caches(cls, cache_dir: Path = Path('.cache')) -> None:
-        """Clear all caches for all repositories."""
+    def clear_all_caches(cls, cache_dir: Optional[Path] = None, repo_path: Optional[Path] = None, config: Optional[Dict[str, Any]] = None) -> None:
+        """Clear all caches for all repositories.
+        
+        Args:
+            cache_dir: The cache directory to clear (default: None, will use config)
+            repo_path: The repository path to clear cache for (default: None)
+            config: Configuration dictionary (default: None)
+        """
+        # Get cache directory name from config if provided
+        cache_dir_name = '.cache'
+        if config and 'cache' in config:
+            cache_dir_name = config.get('cache', {}).get('directory', '.cache')
+            
+        # Use provided cache_dir or default
+        if cache_dir is None:
+            cache_dir = Path(cache_dir_name)
         try:
+            # If repo_path is provided, clear the repository's cache directory
+            if repo_path:
+                repo_cache_dir = repo_path / cache_dir_name
+                if repo_cache_dir.exists():
+                    print(f"Clearing cache in repository: {repo_cache_dir}")
+                    for file in repo_cache_dir.glob('*.db'):
+                        file.unlink()
+                    for file in repo_cache_dir.glob('*.cache'):
+                        file.unlink()
+                    if not any(repo_cache_dir.iterdir()):  # If directory is empty
+                        repo_cache_dir.rmdir()  # Remove the directory itself
+            
+            # Also clear the global cache directory
             if cache_dir.exists():
+                print(f"Clearing global cache: {cache_dir}")
                 for file in cache_dir.glob('*.db'):
                     file.unlink()
                 for file in cache_dir.glob('*.cache'):
@@ -409,7 +480,7 @@ class CacheManager:
                 if not any(cache_dir.iterdir()):  # If directory is empty
                     cache_dir.rmdir()  # Remove the directory itself
         except Exception as e:
-            logging.error(f"Error clearing all caches: {e}") 
+            logging.error(f"Error clearing caches: {e}")
 
     @property
     def repo_path(self):

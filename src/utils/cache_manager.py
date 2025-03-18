@@ -21,12 +21,19 @@ class CacheManager:
                 print("Cache disabled")
             return
             
-        # Get cache directory from config or use default
+        # Get cache directory and location from config
         cache_dir = config.get('cache', {}).get('directory', '.cache')
+        cache_location = config.get('cache', {}).get('location', 'repo')
         
-        # If cache_dir is relative, make it relative to user's home directory
-        if not os.path.isabs(cache_dir):
-            cache_dir = os.path.join(str(Path.home()), f".readme_generator_cache")
+        # Determine cache directory based on location setting
+        if cache_location == 'home':
+            # Use user's home directory
+            if not os.path.isabs(cache_dir):
+                cache_dir = os.path.join(str(Path.home()), f".readme_generator_cache")
+        else:
+            # Default to repository path
+            if not os.path.isabs(cache_dir):
+                cache_dir = os.path.join(str(self.repo_path), cache_dir)
         
         # Create a normalized repo identifier that works for both local and GitHub repos
         if str(self.repo_path).startswith(('http://', 'https://')):
@@ -58,8 +65,6 @@ class CacheManager:
         
         # Set up SQLite database
         self.db_path = self.repo_cache_dir / 'cache.db'
-        self.ttl = config.get('cache', {}).get('ttl', 86400)  # Default 24 hours
-        self.max_size = config.get('cache', {}).get('max_size', 104857600)  # Default 100MB
         
         try:
             self._init_db()

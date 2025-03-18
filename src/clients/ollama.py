@@ -27,6 +27,7 @@ from .llm_utils import (
     process_file_order_response
 )
 from ..analyzers.codebase import CodebaseAnalyzer
+from ..utils.tokens import TokenCounter
 
 class OllamaClientError(Exception):
     """Custom exception for Ollama client errors."""
@@ -50,6 +51,7 @@ class OllamaClient(BaseLLMClient):
         self.available_models = []
         self.project_structure = None
         self.selected_model = None
+        self.token_counter = None
     
     async def initialize(self):
         """Async initialization"""
@@ -59,6 +61,9 @@ class OllamaClient(BaseLLMClient):
                 raise OllamaClientError("No models available in Ollama instance")
             
             self.selected_model = await self._select_model_interactive()
+            
+            # Initialize token counter after model selection
+            self.init_token_counter()
             
             print(f"\nInitialized with model: {self.selected_model}")
             print("Starting analysis...\n")
@@ -70,6 +75,10 @@ class OllamaClient(BaseLLMClient):
             if self.debug:
                 print(f"Initialization error: {traceback.format_exc()}")
             raise OllamaClientError(f"Failed to initialize client: {str(e)}")
+
+    def init_token_counter(self):
+        """Initialize the token counter for this client."""
+        self.token_counter = TokenCounter(model_name=self.selected_model, debug=self.debug)
 
     async def _get_available_models(self) -> list:
         """Get list of available models from Ollama."""
@@ -91,6 +100,19 @@ class OllamaClient(BaseLLMClient):
     async def generate_summary(self, prompt: str) -> Optional[str]:
         """Generate a summary for a file's content."""
         try:
+            # Check token count
+            will_exceed, token_count = self.token_counter.will_exceed_limit(prompt, self.selected_model)
+            
+            if will_exceed:
+                if self.debug:
+                    print(f"Content exceeds token limit ({token_count} tokens). Truncating...")
+                prompt = self.token_counter.truncate_text(prompt)
+                
+                # Re-check after truncation
+                _, new_token_count = self.token_counter.will_exceed_limit(prompt, self.selected_model)
+                if self.debug:
+                    print(f"Truncated to {new_token_count} tokens")
+            
             response = await self.client.chat(
                 model=self.selected_model,
                 messages=MessageManager.get_file_summary_messages(prompt),

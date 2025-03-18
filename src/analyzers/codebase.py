@@ -49,14 +49,13 @@ class CodebaseAnalyzer:
         # Initialize cache with correct parameters
         self.cache = CacheManager(
             enabled=not config.get('no_cache', False),
-            repo_identifier=repo_identifier
+            repo_identifier=repo_identifier,
+            repo_path=self.repo_path,  # Pass repo_path directly to constructor
+            config=config  # Pass the entire config to allow access to cache location setting
         )
         
         # Set debug mode on cache if needed
         self.cache.debug = self.debug
-        
-        # IMPORTANT: Set the repo_path in the cache manager
-        self.cache.repo_path = self.repo_path
         
     def _load_gitignore(self):
         """Load all .gitignore files from the repository"""

@@ -688,6 +688,11 @@ async def main():
             analyzer = CodebaseAnalyzer(repo_path, config)
             analyzer.cache.clear_repo_cache()
             print(f"Cleared cache for repository: {repo_path.name}")
+            
+            # Also clear the global cache for this repository
+            from src.utils.cache import CacheManager
+            CacheManager.clear_all_caches(repo_path=repo_path, config=config)
+            
             if temp_dir and not args.keep_clone:
                 shutil.rmtree(temp_dir, ignore_errors=True)
             return  # Exit after clearing cache

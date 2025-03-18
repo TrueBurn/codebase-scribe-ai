@@ -27,6 +27,7 @@ from pathlib import Path
 import traceback
 import botocore
 from botocore.config import Config as BotocoreConfig
+from ..utils.tokens import TokenCounter
 
 class BedrockClientError(Exception):
     """Custom exception for Bedrock client errors."""
@@ -76,6 +77,12 @@ class BedrockClient(BaseLLMClient):
         else:
             self.verify_ssl = bedrock_config.get('verify_ssl', True)
         
+        # Set environment variable for tiktoken SSL verification to match our setting
+        if not self.verify_ssl:
+            os.environ['TIKTOKEN_VERIFY_SSL'] = 'false'
+            if self.debug:
+                print("SSL verification disabled for tiktoken")
+        
         # Initialize Bedrock client with credentials from environment and longer timeout
         # AWS SDK will automatically use AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from env
         self.client = boto3.client(
@@ -93,9 +100,15 @@ class BedrockClient(BaseLLMClient):
         # Add temperature setting
         self.temperature = bedrock_config.get('temperature', 0)  # Default to 0 for deterministic output
         
+        # Add token counter
+        self.token_counter = None
+        
     async def initialize(self):
         """Async initialization"""
         try:
+            # Initialize token counter
+            self.init_token_counter()
+            
             print(f"\nInitialized with model: {self.model_id}")
             print(f"Using AWS region: {self.region}")
             print("Starting analysis...\n")
@@ -113,6 +126,10 @@ class BedrockClient(BaseLLMClient):
                 print(f"Initialization error: {str(e)}")
             raise BedrockClientError(f"Failed to initialize client: {str(e)}")
     
+    def init_token_counter(self):
+        """Initialize the token counter for this client."""
+        self.token_counter = TokenCounter(model_name=self.model_id, debug=self.debug)
+    
     @async_retry(
         retries=3,
         delay=1.0,
@@ -125,38 +142,9 @@ class BedrockClient(BaseLLMClient):
             try:
                 messages = MessageManager.get_file_summary_messages(prompt)
                 
-                # For Claude models in Bedrock, we need to use a different format
-                # Claude 3 in Bedrock expects "user" and "assistant" roles, not "system"
-                
-                # Extract the system message content
-                system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
-                user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
-                
-                # Combine system and user content for Claude
-                combined_content = f"{system_content}\n\n{user_content}"
-                
-                # Create proper Bedrock format
-                bedrock_messages = [
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": combined_content}]
-                    }
-                ]
-                
-                response = await asyncio.to_thread(
-                    self.client.invoke_model,
-                    body=json.dumps({
-                        "anthropic_version": "bedrock-2023-05-31",
-                        "max_tokens": self.max_tokens,
-                        "messages": bedrock_messages,
-                        "temperature": self.temperature
-                    }),
-                    modelId=self.model_id
-                )
-                
-                response_body = json.loads(response.get('body').read())
-                content = response_body['content'][0]['text']
-                return self._fix_markdown_issues(content)
+                # Use the new token-aware invocation method
+                content = await self._invoke_model_with_token_management(messages)
+                return content
                 
             except Exception as e:
                 logging.error(f"Error generating summary: {e}")
@@ -190,153 +178,98 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
-        exceptions=(ConnectionError, TimeoutError),
+        exceptions=(botocore.exceptions.ClientError, ConnectionError, TimeoutError),
     )
     async def generate_project_overview(self, file_manifest: dict) -> str:
-        """Generate a comprehensive overview of the project."""
-        async with self.semaphore:  # Use semaphore to control concurrency
-            # Use a single progress bar with a unique description to avoid duplicates
-            with tqdm(
-                desc="Generating project overview",
-                bar_format='{desc}|{bar}| {percentage:3.0f}%',
-                ncols=100,
-                position=0,  # Force position to 0 to avoid multiple bars
-                leave=True   # Keep the bar after completion
-            ) as pbar:
-                try:
-                    update_task = asyncio.create_task(self._update_progress(pbar))
-                    
-                    # Ensure project structure is set
-                    if not self.project_structure or len(self.project_structure) < 10:
-                        self.project_structure = self._format_project_structure(file_manifest)
-                        if self.debug:
-                            print(f"Project structure generated ({len(self.project_structure)} chars)")
-                    
-                    # Get detected technologies
-                    tech_report = self._find_common_dependencies(file_manifest)
-                    
-                    # Get key components with the improved method
-                    key_components = self._identify_key_components(file_manifest)
-                    
-                    # Create a summary of file contents for context
-                    file_summaries = []
-                    
-                    # First, categorize files by directory/component
-                    file_by_component = {}
-                    for path, info in file_manifest.items():
-                        # Check if info is a FileInfo object or a dictionary
-                        if hasattr(info, 'summary') and not getattr(info, 'is_binary', False):
-                            directory = str(Path(path).parent)
-                            if directory not in file_by_component:
-                                file_by_component[directory] = []
-                            file_by_component[directory].append((path, getattr(info, 'summary', 'No summary available')))
-                    
-                    # For each component, include a representative sample of files
-                    for directory, files in file_by_component.items():
-                        # Add component header
-                        file_summaries.append(f"## Component: {directory}")
-                        
-                        # Sort files by potential importance (e.g., longer summaries might be more important)
-                        files.sort(key=lambda x: len(x[1]), reverse=True)
-                        
-                        # Take up to 5 files per component to ensure broad coverage
-                        for path, summary in files[:5]:
-                            file_summaries.append(f"File: {path}\nSummary: {summary}")
-                    
-                    # If we still have too many summaries, prioritize by component size
-                    if len('\n\n'.join(file_summaries)) > 12000:  # Approximate token limit
-                        # Sort components by number of files (largest first)
-                        sorted_components = sorted(file_by_component.items(), key=lambda x: len(x[1]), reverse=True)
-                        
-                        # Reset file_summaries and rebuild with top components
-                        file_summaries = []
-                        for directory, files in sorted_components[:10]:  # Top 10 components
-                            file_summaries.append(f"## Component: {directory}")
-                            for path, summary in files[:3]:  # Top 3 files per component
-                                file_summaries.append(f"File: {path}\nSummary: {summary}")
-                    
-                    file_summaries_text = "\n\n".join(file_summaries)
-                    
-                    # Debug output
-                    if self.debug:
-                        print(f"Tech report: {len(tech_report)} chars")
-                        print(f"Key components: {len(key_components)} chars")
-                        print(f"File summaries: {len(file_summaries)} entries, {len(file_summaries_text)} chars")
-                    
-                    # Get template content
-                    template_content = self.prompt_template.get_template('project_overview', {
-                        'project_name': self._derive_project_name(file_manifest),
-                        'file_count': len(file_manifest),
-                        'key_components': key_components,
-                        'dependencies': tech_report,
-                        'project_structure': self.project_structure
-                    })
-                    
-                    # Get messages from MessageManager
-                    messages = MessageManager.get_project_overview_messages(
-                        self.project_structure, 
-                        tech_report, 
-                        template_content
+        """Generate project overview based on file manifest."""
+        try:
+            with tqdm(total=100, desc="Generating project overview", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+                # Create progress update task
+                update_task = asyncio.create_task(self._update_progress(pbar))
+                
+                # Get project name
+                project_name = self._derive_project_name(file_manifest)
+                
+                # Get detected technologies
+                tech_report = self._find_common_dependencies(file_manifest)
+                
+                # Get key components
+                key_components = self._identify_key_components(file_manifest)
+                
+                # Get template content
+                template_content = self.prompt_template.get_template("project_overview").format(
+                    project_name=project_name,
+                    file_count=len(file_manifest),
+                    key_components=key_components
+                )
+                
+                # Get messages
+                messages = MessageManager.get_project_overview_messages(
+                    self.project_structure,
+                    tech_report,
+                    template_content
+                )
+                
+                # Check token limits and truncate if needed
+                if self.token_counter:
+                    messages = MessageManager.check_and_truncate_messages(
+                        messages, 
+                        self.token_counter, 
+                        self.model_id
                     )
-                    
-                    # Extract system and user content
-                    system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
-                    user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
-                    
-                    # Add file summaries to provide more context
-                    user_content += f"\n\nFile Summaries:\n{file_summaries_text}"
-                    
-                    # Combine for Claude
-                    combined_content = f"{system_content}\n\n{user_content}"
-                    
-                    # Debug output
-                    if self.debug:
-                        print(f"Combined content length: {len(combined_content)} chars")
-                    
-                    # Create proper Bedrock format
-                    bedrock_messages = [
-                        {
-                            "role": "user",
-                            "content": [{"type": "text", "text": combined_content}]
-                        }
-                    ]
-                    
-                    # Convert to async operation
-                    response = await asyncio.to_thread(
-                        self.client.invoke_model,
-                        body=json.dumps({
-                            "anthropic_version": "bedrock-2023-05-31",
-                            "max_tokens": self.max_tokens,
-                            "messages": bedrock_messages,
-                            "temperature": self.temperature
-                        }),
-                        modelId=self.model_id
-                    )
-                    
-                    update_task.cancel()
-                    
-                    # Process response
-                    response_body = json.loads(response.get('body').read())
-                    content = response_body['content'][0]['text']
-                    
-                    # Fix any remaining markdown issues
-                    fixed_content = self._fix_markdown_issues(content)
-                    return fixed_content
-                    
-                except Exception as e:
-                    if self.debug:
-                        print(f"\nError generating overview: {str(e)}")
-                    
-                    # Instead of returning an error message, extract from ARCHITECTURE.md if available
-                    project_name = self._derive_project_name(file_manifest)
-                    
-                    # Try to find an overview from the first file that might contain it
-                    for path, info in file_manifest.items():
-                        if hasattr(info, 'summary') and len(getattr(info, 'summary', '')) > 100:
-                            return getattr(info, 'summary')
-                    
-                    # Return a more useful fallback that won't show as an error
-                    return f"{project_name} is a software project containing {len(file_manifest)} files. For more details, please refer to the documentation."
+                
+                # Extract system and user content
+                system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
+                user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
+                
+                # Combine for Claude
+                combined_content = f"{system_content}\n\n{user_content}"
+                
+                # Create proper Bedrock format
+                bedrock_messages = [
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": combined_content}]
+                    }
+                ]
+                
+                # Update progress
+                pbar.update(20)
+                
+                # Invoke model
+                response = await asyncio.to_thread(
+                    self.client.invoke_model,
+                    body=json.dumps({
+                        "anthropic_version": "bedrock-2023-05-31",
+                        "max_tokens": self.max_tokens,
+                        "messages": bedrock_messages,
+                        "temperature": self.temperature
+                    }),
+                    modelId=self.model_id
+                )
+                
+                # Update progress
+                pbar.update(70)
+                
+                # Process response
+                response_body = json.loads(response.get('body').read())
+                content = response_body['content'][0]['text']
+                
+                # Update progress
+                pbar.update(10)
+                
+                # Cancel progress update task
+                update_task.cancel()
+                
+                # Fix any markdown issues
+                fixed_content = self._fix_markdown_issues(content)
+                
+                return fixed_content
+                
+        except Exception as e:
+            if self.debug:
+                print(f"\nError generating overview: {str(e)}")
+            raise
     
     def _format_project_structure(self, file_manifest: dict) -> str:
         """Build a tree-like project structure string."""
@@ -486,77 +419,63 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
-        exceptions=(ConnectionError, TimeoutError, botocore.exceptions.ReadTimeoutError),
+        exceptions=(botocore.exceptions.ClientError, ConnectionError, TimeoutError),
     )
     async def generate_architecture_doc(self, file_manifest: dict) -> str:
-        """Generate architecture documentation for the project."""
+        """Generate architecture documentation based on file manifest."""
         try:
-            # Get detected technologies
-            tech_report = self._find_common_dependencies(file_manifest)
-            
-            # Get key components
-            key_components = self._identify_key_components(file_manifest)
-            
-            # Log for debugging
-            if self.debug:
-                print(f"Technology report generated ({len(tech_report)} chars)")
-                print(f"Key components identified: {len(key_components)} chars)")
-            
-            # Get messages from MessageManager - FIX: Use the correct method name
-            messages = MessageManager.get_architecture_content_messages(
-                self.project_structure,
-                key_components,
-                tech_report
-            )
-            
-            # Extract system and user content
-            system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
-            user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
-            
-            # Combine for Claude
-            combined_content = f"{system_content}\n\n{user_content}"
-            
-            # Create proper Bedrock format
-            bedrock_messages = [
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": combined_content}]
-                }
-            ]
-            
-            # Rest of the method remains unchanged
-            logging.info("Sending architecture documentation request to LLM")
-            
-            # Convert to async operation with explicit timeout
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self.client.invoke_model,
-                    body=json.dumps({
-                        "anthropic_version": "bedrock-2023-05-31",
-                        "max_tokens": self.max_tokens,
-                        "messages": bedrock_messages,
-                        "temperature": self.temperature
-                    }),
-                    modelId=self.model_id
-                ),
-                timeout=self.timeout
-            )
-            
-            # Process response
-            response_body = json.loads(response.get('body').read())
-            content = response_body['content'][0]['text']
-            logging.info(f"Received architecture content ({len(content)} chars)")
-            
-            # Fix any markdown issues
-            return self._fix_markdown_issues(content)
-        
-        except asyncio.TimeoutError:
-            logging.error(f"Request timed out after {self.timeout} seconds")
-            raise TimeoutError(f"Request timed out after {self.timeout} seconds")
-        
+            with tqdm(total=100, desc="Generating architecture documentation", bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}') as pbar:
+                # Create progress update task
+                update_task = asyncio.create_task(self._update_progress(pbar))
+                
+                # Get project name
+                project_name = self._derive_project_name(file_manifest)
+                
+                # Get detected technologies
+                tech_report = self._find_common_dependencies(file_manifest)
+                
+                # Get key components
+                key_components = self._identify_key_components(file_manifest)
+                
+                # Get messages
+                messages = MessageManager.get_architecture_content_messages(
+                    self.project_structure,
+                    key_components,
+                    tech_report
+                )
+                
+                # Update progress
+                pbar.update(20)
+                
+                try:
+                    # Use the new token-aware invocation method
+                    content = await self._invoke_model_with_token_management(messages)
+                    
+                    # Update progress
+                    pbar.update(70)
+                    
+                    # Cancel progress update task
+                    update_task.cancel()
+                    
+                    logging.info("Successfully received architecture content from LLM")
+                    return content
+                    
+                except Exception as e:
+                    # Cancel progress update task
+                    update_task.cancel()
+                    
+                    logging.error(f"Error in LLM architecture generation: {str(e)}")
+                    logging.error(f"Exception details: {traceback.format_exc()}")
+                    
+                    # Return a fallback message
+                    return "# Architecture Documentation\n\nUnable to generate architecture documentation due to an error."
+                
         except Exception as e:
-            logging.error(f"Error in Bedrock API call: {str(e)}")
-            raise
+            if self.debug:
+                print(f"\nError generating architecture documentation: {str(e)}")
+            logging.error(f"Error in LLM architecture generation: {str(e)}")
+            logging.error(f"Exception details: {traceback.format_exc()}")
+            return "# Architecture Documentation\n\nUnable to generate architecture documentation due to an error."
     
     @async_retry(
         retries=3,
@@ -577,108 +496,59 @@ class BedrockClient(BaseLLMClient):
                     tech_report
                 )
                 
-                # Extract system and user content
-                system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
-                user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
-                
-                # Combine for Claude
-                combined_content = f"{system_content}\n\n{user_content}"
-                
-                # Create proper Bedrock format
-                bedrock_messages = [
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": combined_content}]
-                    }
-                ]
-                
-                response = await asyncio.to_thread(
-                    self.client.invoke_model,
-                    body=json.dumps({
-                        "anthropic_version": "bedrock-2023-05-31",
-                        "max_tokens": self.max_tokens,
-                        "messages": bedrock_messages,
-                        "temperature": self.temperature
-                    }),
-                    modelId=self.model_id
-                )
-                
-                # Process response
-                response_body = json.loads(response.get('body').read())
-                content = response_body['content'][0]['text']
-                
-                # Fix any remaining markdown issues
-                fixed_content = self._fix_markdown_issues(content)
-                return fixed_content
+                # Use the new token-aware invocation method
+                content = await self._invoke_model_with_token_management(messages)
+                return content
                 
             except Exception as e:
                 if self.debug:
                     print(f"\nError generating component relationships: {str(e)}")
-                return "Error generating component relationship documentation."
+                return "# Component Relationships\n\nUnable to generate component relationships due to an error."
     
     @async_retry(
         retries=3,
         delay=1.0,
         backoff=2.0,
-        exceptions=(ConnectionError, TimeoutError),
+        exceptions=(botocore.exceptions.ClientError, ConnectionError, TimeoutError),
     )
     async def enhance_documentation(self, existing_content: str, file_manifest: dict, doc_type: str) -> str:
         """Enhance existing documentation with new insights."""
-        async with self.semaphore:
-            try:
-                # Get detected technologies
-                tech_report = self._find_common_dependencies(file_manifest)
-                
-                # Get key components
-                key_components = self._identify_key_components(file_manifest)
-                
-                # Get messages from MessageManager
-                messages = MessageManager.get_enhance_documentation_messages(
-                    existing_content,
-                    self.project_structure,
-                    key_components,
-                    tech_report,
-                    doc_type
-                )
-                
-                # Extract system and user content
-                system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
-                user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
-                
-                # Combine for Claude
-                combined_content = f"{system_content}\n\n{user_content}"
-                
-                # Create proper Bedrock format
-                bedrock_messages = [
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": combined_content}]
-                    }
-                ]
-                
-                response = await asyncio.to_thread(
-                    self.client.invoke_model,
-                    body=json.dumps({
-                        "anthropic_version": "bedrock-2023-05-31",
-                        "max_tokens": self.max_tokens,
-                        "messages": bedrock_messages,
-                        "temperature": self.temperature
-                    }),
-                    modelId=self.model_id
-                )
-                
-                # Process response
-                response_body = json.loads(response.get('body').read())
-                content = response_body['content'][0]['text']
-                
-                # Fix any remaining markdown issues
-                fixed_content = self._fix_markdown_issues(content)
-                return fixed_content
-                
-            except Exception as e:
-                if self.debug:
-                    print(f"\nError enhancing documentation: {str(e)}")
-                return existing_content  # Return original content on error
+        try:
+            # Get detected technologies
+            tech_report = self._find_common_dependencies(file_manifest)
+            
+            # Get key components
+            key_components = self._identify_key_components(file_manifest)
+            
+            # Create context for template
+            context = {
+                "doc_type": doc_type,
+                "existing_content": existing_content
+            }
+            
+            # Get template content with context
+            template_content = self.prompt_template.get_template("enhance_documentation", context)
+            
+            # Get messages
+            messages = MessageManager.get_enhance_documentation_messages(
+                existing_content,
+                self.project_structure,
+                key_components,
+                tech_report,
+                doc_type
+            )
+            
+            # Use the token-aware invocation method
+            content = await self._invoke_model_with_token_management(messages)
+            
+            # Fix any markdown issues
+            return self._fix_markdown_issues(content)
+            
+        except Exception as e:
+            if self.debug:
+                print(f"\nError enhancing documentation: {str(e)}")
+            logging.error(f"Error enhancing documentation: {str(e)}")
+            return existing_content  # Return original content on error
 
     @async_retry(
         retries=3,
@@ -900,3 +770,134 @@ class BedrockClient(BaseLLMClient):
             print(f"Error in file order optimization: {str(e)}")
             logging.error(f"Error getting file order: {str(e)}", exc_info=True)
             return list(project_files.keys())
+
+    @async_retry(
+        retries=3,
+        delay=1.0,
+        backoff=2.0,
+        exceptions=(botocore.exceptions.ClientError, ConnectionError, TimeoutError),
+    )
+    async def _invoke_model_with_token_management(self, messages, max_tokens=None, retry_on_token_error=True):
+        """Invoke model with automatic token management to prevent 'Input is too long' errors."""
+        try:
+            # Extract system and user content
+            system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
+            user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
+            
+            # Combine for Claude
+            combined_content = f"{system_content}\n\n{user_content}"
+            
+            # Check token count before sending
+            if self.token_counter:
+                total_tokens = self.token_counter.count_tokens(combined_content)
+                model_limit = self.token_counter.get_token_limit(self.model_id)
+                logging.info(f"Request content: {total_tokens} tokens (model limit: {model_limit})")
+                
+                # If we're over the limit, truncate
+                if total_tokens > model_limit:
+                    logging.warning(f"Content exceeds token limit: {total_tokens} > {model_limit}")
+                    # Use the intelligent reduction method first
+                    combined_content = self.token_counter.handle_oversized_input(
+                        combined_content, 
+                        target_percentage=0.8
+                    )
+                    new_tokens = self.token_counter.count_tokens(combined_content)
+                    logging.info(f"Intelligently reduced content from {total_tokens} to {new_tokens} tokens")
+                    
+                    # If still over limit, use more aggressive truncation
+                    if new_tokens > model_limit:
+                        combined_content = self.token_counter.truncate_text(
+                            combined_content, 
+                            int(model_limit * 0.9)
+                        )
+                        final_tokens = self.token_counter.count_tokens(combined_content)
+                        logging.info(f"Further truncated to {final_tokens} tokens")
+                
+                # Log final token count
+                final_tokens = self.token_counter.count_tokens(combined_content)
+                logging.info(f"Final combined content: {final_tokens} tokens")
+            
+            # Create proper Bedrock format
+            bedrock_messages = [
+                {
+                    "role": "user",
+                    "content": [{"type": "text", "text": combined_content}]
+                }
+            ]
+            
+            # Use provided max_tokens or default
+            tokens_to_generate = max_tokens or self.max_tokens
+            
+            # Create request body
+            request_body = json.dumps({
+                "anthropic_version": "bedrock-2023-05-31",
+                "max_tokens": tokens_to_generate,
+                "messages": bedrock_messages,
+                "temperature": self.temperature
+            })
+            
+            logging.info(f"Request body size: {len(request_body)} bytes")
+            
+            # Invoke model with timeout
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self.client.invoke_model,
+                        body=request_body,
+                        modelId=self.model_id
+                    ),
+                    timeout=self.timeout
+                )
+                
+                # Process response
+                response_body = json.loads(response.get('body').read())
+                content = response_body['content'][0]['text']
+                
+                # Fix any markdown issues
+                fixed_content = self._fix_markdown_issues(content)
+                
+                return fixed_content
+                
+            except asyncio.TimeoutError:
+                logging.error(f"Request timed out after {self.timeout} seconds")
+                raise TimeoutError(f"Bedrock API call timed out after {self.timeout} seconds")
+                
+            except botocore.exceptions.ClientError as e:
+                error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+                error_message = e.response.get('Error', {}).get('Message', str(e))
+                logging.error(f"Error in Bedrock API call: {error_code} - {error_message}")
+                
+                # Handle "Input is too long" error with emergency truncation
+                if retry_on_token_error and error_code == 'ValidationException' and 'Input is too long' in error_message:
+                    logging.warning("Input too long error detected, attempting emergency truncation")
+                    
+                    # Try with even more aggressive truncation as a last resort
+                    if self.token_counter:
+                        # Use only 50% of the limit for emergency cases
+                        max_emergency_tokens = int(model_limit * 0.5)
+                        emergency_content = self.token_counter.truncate_text(combined_content, max_emergency_tokens)
+                        emergency_tokens = self.token_counter.count_tokens(emergency_content)
+                        logging.info(f"Emergency truncation to {emergency_tokens} tokens (50% of limit)")
+                        
+                        # Create emergency messages
+                        emergency_messages = [
+                            {"role": "system", "content": "Provide a concise response due to input length constraints."},
+                            {"role": "user", "content": emergency_content}
+                        ]
+                        
+                        # Recursive call with emergency truncation, but prevent infinite recursion
+                        return await self._invoke_model_with_token_management(
+                            emergency_messages, 
+                            max_tokens=tokens_to_generate,
+                            retry_on_token_error=False  # Prevent infinite recursion
+                        )
+                
+                # Re-raise the exception if we can't handle it
+                raise
+                
+        except Exception as e:
+            if self.debug:
+                print(f"Error in model invocation: {str(e)}")
+            logging.error(f"Error in model invocation: {str(e)}")
+            logging.error(f"Exception details: {traceback.format_exc()}")
+            raise

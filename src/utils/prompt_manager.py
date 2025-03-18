@@ -1,6 +1,8 @@
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import yaml
+import os
+import logging
 
 class PromptTemplate:
     """Manages customizable prompt templates with context injection."""
@@ -62,13 +64,32 @@ Focus on high-level understanding while highlighting unique aspects.
         if 'templates' in config:
             self.templates.update(config['templates'])
     
-    def get_template(self, template_name: str, context: Dict) -> str:
-        """Get a template with context variables injected."""
-        if template_name not in self.templates:
-            raise ValueError(f"Template '{template_name}' not found")
+    def get_template(self, template_name: str, context: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Get a template by name and optionally format it with context.
         
+        Args:
+            template_name: Name of the template to retrieve
+            context: Optional dictionary of values to format the template with
+            
+        Returns:
+            The template string, optionally formatted with context
+        """
+        if template_name not in self.templates:
+            # Return a simple default template if the requested one doesn't exist
+            return f"Please analyze the following content: {{content}}"
+            
         template = self.templates[template_name]
-        return template.format(**self._prepare_context(context))
+        
+        # If context is provided, format the template
+        if context:
+            try:
+                return template.format(**context)
+            except KeyError as e:
+                logging.warning(f"Missing key in template formatting: {e}")
+                return template
+        
+        return template
     
     def _prepare_context(self, context: Dict) -> Dict:
         """Prepare context variables for template injection."""

@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
+from ..utils.tokens import TokenCounter
 
 class BaseLLMClient(ABC):
     """Base abstract class for LLM clients."""
@@ -7,6 +8,11 @@ class BaseLLMClient(ABC):
     @abstractmethod
     async def initialize(self):
         """Initialize the client."""
+        pass
+    
+    @abstractmethod
+    def init_token_counter(self):
+        """Initialize the token counter for this client."""
         pass
     
     @abstractmethod

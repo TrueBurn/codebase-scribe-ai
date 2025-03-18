@@ -48,14 +48,14 @@ tests/fixtures/test_repo/__pycache__/
 pytest-env/
 
 # Project specific
-.cache/
 docs/_build/
-cache.db
-cache.db-journal
-*.db
-*.db-journal
 .cache_directory/
 temp_cache/
+
+# Exclude cache files in test folders
+tests/**/.cache/
+tests/**/*.db
+tests/**/*.db-journal
 
 # Build artifacts
 dist/

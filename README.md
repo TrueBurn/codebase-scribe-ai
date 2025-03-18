@@ -283,8 +283,9 @@ ollama:
   timeout: 30  # Request timeout in seconds
 
 cache:
-  ttl: 3600  # Cache TTL in seconds
-  max_size: 104857600  # Maximum cache size (100MB)
+  enabled: true  # Set to false to disable caching
+  directory: ".cache"  # Directory to store cache files
+  location: "repo"  # "repo" or "home" for cache location
 
 templates:
   prompts:
@@ -439,6 +440,30 @@ This should be re-enabled before deploying to production for better performance.
 
 The tool provides several ways to manage caching:
 
+### Cache Location Options
+
+The cache can be stored in two locations, configurable via the `cache.location` setting in `config.yaml`:
+
+1. **Repository-Based Cache** (`location: "repo"`, default)
+   - Stored directly in the target repository's `.cache` directory
+   - **Shared Cache**: Anyone running the script on the same repository benefits from previous analysis
+   - **CI/CD Integration**: Makes it easier to integrate with GitHub Actions as the cache is part of the repository
+   - **Portable**: Cache travels with the repository when cloned or forked
+
+2. **Home Directory Cache** (`location: "home"`)
+   - Stored in the user's home directory under `.readme_generator_cache`
+   - **Privacy**: Cache files remain on the local machine
+   - **Cleaner Repository**: Doesn't add cache files to the repository
+   - **Legacy Behavior**: Matches the behavior of earlier versions
+
+You can configure this in `config.yaml`:
+```yaml
+cache:
+  enabled: true
+  directory: ".cache"
+  location: "repo"  # Change to "home" to use home directory
+```
+
 ### Command Line Options
 ```bash
 # Disable caching for current run
@@ -449,3 +474,18 @@ python codebase_scribe.py --repo /path/to/repo --clear-cache
 
 # Note: --clear-cache will clear the cache and exit without processing
 ```
+
+### Cache Optimization
+
+The cache system includes several optimizations:
+
+- **SQLite Vacuum**: Periodically compacts the database to minimize repository size
+- **Content-Based Invalidation**: Only regenerates summaries when file content changes
+- **Structured Storage**: Uses a database format that minimizes merge conflicts
+
+### Cache Exclusions
+
+While the cache is generally committed to the repository, certain directories are excluded:
+
+- **Test Folders**: Cache files in `tests/` and its subdirectories are excluded from git
+- This prevents test-generated cache files from being committed while still allowing the main project cache to be shared
