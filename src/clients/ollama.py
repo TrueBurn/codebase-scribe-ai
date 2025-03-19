@@ -95,6 +95,8 @@ class OllamaClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
     async def generate_summary(self, prompt: str) -> Optional[str]:
@@ -158,6 +160,8 @@ class OllamaClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
     async def generate_project_overview(self, file_manifest: dict) -> str:
@@ -233,6 +237,8 @@ class OllamaClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
     async def generate_component_relationships(self, file_manifest: dict) -> str:
@@ -322,6 +328,8 @@ class OllamaClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
     async def generate_architecture_content(self, file_manifest: dict, analyzer) -> str:
@@ -410,6 +418,8 @@ class OllamaClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
     async def generate_usage_guide(self, file_manifest: dict) -> str:
@@ -438,6 +448,8 @@ class OllamaClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
     async def generate_contributing_guide(self, file_manifest: dict) -> str:
@@ -465,6 +477,8 @@ class OllamaClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
     async def generate_license_info(self, file_manifest: dict) -> str:
@@ -492,6 +506,8 @@ class OllamaClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
     async def enhance_documentation(self, existing_content: str, file_manifest: dict, doc_type: str) -> str:

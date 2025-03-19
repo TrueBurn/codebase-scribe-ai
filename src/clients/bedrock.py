@@ -134,6 +134,8 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(ConnectionError, TimeoutError),
     )
     async def generate_summary(self, prompt: str) -> Optional[str]:
@@ -178,6 +180,8 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(botocore.exceptions.ClientError, ConnectionError, TimeoutError),
     )
     async def generate_project_overview(self, file_manifest: dict) -> str:
@@ -306,6 +310,8 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(ConnectionError, TimeoutError),
     )
     async def generate_architecture_content(self, file_manifest: dict, analyzer) -> str:
@@ -419,6 +425,8 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(botocore.exceptions.ClientError, ConnectionError, TimeoutError),
     )
     async def generate_architecture_doc(self, file_manifest: dict) -> str:
@@ -481,6 +489,8 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(ConnectionError, TimeoutError),
     )
     async def generate_component_relationships(self, file_manifest: dict) -> str:
@@ -509,6 +519,8 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(botocore.exceptions.ClientError, ConnectionError, TimeoutError),
     )
     async def enhance_documentation(self, existing_content: str, file_manifest: dict, doc_type: str) -> str:
@@ -554,6 +566,8 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(ConnectionError, TimeoutError),
     )
     async def generate_usage_guide(self, file_manifest: dict) -> str:
@@ -609,6 +623,8 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(ConnectionError, TimeoutError),
     )
     async def generate_contributing_guide(self, file_manifest: dict) -> str:
@@ -663,6 +679,8 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(ConnectionError, TimeoutError),
     )
     async def generate_license_info(self, file_manifest: dict) -> str:
@@ -775,6 +793,8 @@ class BedrockClient(BaseLLMClient):
         retries=3,
         delay=1.0,
         backoff=2.0,
+        max_delay=30.0,
+        jitter=True,
         exceptions=(botocore.exceptions.ClientError, ConnectionError, TimeoutError),
     )
     async def _invoke_model_with_token_management(self, messages, max_tokens=None, retry_on_token_error=True):
