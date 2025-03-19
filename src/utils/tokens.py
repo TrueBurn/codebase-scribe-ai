@@ -5,9 +5,17 @@ import os
 import ssl
 import requests
 from urllib3.exceptions import SSLError
+import json
+from pathlib import Path
 
 class TokenCounter:
     """Utility for counting tokens in LLM requests and responses."""
+    
+    # Default buffer percentages for different operations
+    DEFAULT_BUFFER_PERCENTAGE = 0.1  # Default 10% buffer for will_exceed_limit
+    DEFAULT_TRUNCATE_BUFFER = 0.9    # Default 90% of limit for truncate_text
+    DEFAULT_CHUNK_BUFFER = 0.8       # Default 80% of limit for chunk_text
+    DEFAULT_OVERSIZED_TARGET = 0.8   # Default 80% target for handle_oversized_input
     
     # Default token limits for different models
     MODEL_LIMITS = {
@@ -46,16 +54,36 @@ class TokenCounter:
         "claude": "cl100k_base",
     }
     
-    def __init__(self, model_name: str = "default", debug: bool = False):
+    def __init__(self, model_name: str = "default", debug: bool = False,
+                 buffer_percentage: float = None,
+                 truncate_buffer: float = None,
+                 chunk_buffer: float = None,
+                 oversized_target: float = None,
+                 config_path: Optional[str] = None):
         """Initialize the token counter with a specific model.
         
         Args:
             model_name: Name of the model to use for token counting
             debug: Whether to enable debug logging
+            buffer_percentage: Buffer percentage for will_exceed_limit (default: 10%)
+            truncate_buffer: Buffer percentage for truncate_text (default: 90%)
+            chunk_buffer: Buffer percentage for chunk_text (default: 80%)
+            oversized_target: Target percentage for handle_oversized_input (default: 80%)
+            config_path: Optional path to a JSON config file with model limits
         """
         self.model_name = model_name
         self.debug = debug
         self.logger = logging.getLogger(__name__)
+        
+        # Set buffer percentages (use provided values or defaults)
+        self.buffer_percentage = buffer_percentage if buffer_percentage is not None else self.DEFAULT_BUFFER_PERCENTAGE
+        self.truncate_buffer = truncate_buffer if truncate_buffer is not None else self.DEFAULT_TRUNCATE_BUFFER
+        self.chunk_buffer = chunk_buffer if chunk_buffer is not None else self.DEFAULT_CHUNK_BUFFER
+        self.oversized_target = oversized_target if oversized_target is not None else self.DEFAULT_OVERSIZED_TARGET
+        
+        # Load model limits from config file if provided
+        if config_path:
+            self._load_model_limits_from_config(config_path)
         
         # Check for SSL verification environment variable
         self.verify_ssl = True
@@ -68,18 +96,7 @@ class TokenCounter:
         try:
             # Handle SSL verification for tiktoken
             if not self.verify_ssl:
-                # Create a custom SSL context that doesn't verify certificates
-                ssl_context = ssl._create_unverified_context()
-                # Patch the requests session to use our custom SSL context
-                old_merge_environment_settings = requests.Session.merge_environment_settings
-                
-                def merge_environment_settings(self, url, proxies, stream, verify, cert):
-                    settings = old_merge_environment_settings(self, url, proxies, stream, verify, cert)
-                    settings['verify'] = False
-                    return settings
-                
-                # Apply the patch
-                requests.Session.merge_environment_settings = merge_environment_settings
+                self._configure_ssl_verification()
             
             self.encoding = tiktoken.get_encoding(encoding_name)
             if debug:
@@ -95,7 +112,44 @@ class TokenCounter:
                 # Create a very simple fallback tokenizer that just counts words
                 self.encoding = self._create_fallback_tokenizer()
     
-    def _create_fallback_tokenizer(self):
+    def _configure_ssl_verification(self) -> None:
+        """Configure SSL verification settings for tiktoken."""
+        # Create a custom SSL context that doesn't verify certificates
+        ssl_context = ssl._create_unverified_context()
+        # Patch the requests session to use our custom SSL context
+        old_merge_environment_settings = requests.Session.merge_environment_settings
+        
+        def merge_environment_settings(self, url, proxies, stream, verify, cert):
+            settings = old_merge_environment_settings(self, url, proxies, stream, verify, cert)
+            settings['verify'] = False
+            return settings
+        
+        # Apply the patch
+        requests.Session.merge_environment_settings = merge_environment_settings
+    
+    def _load_model_limits_from_config(self, config_path: str) -> None:
+        """Load model limits from a JSON configuration file.
+        
+        Args:
+            config_path: Path to the JSON configuration file
+        """
+        try:
+            config_file = Path(config_path)
+            if config_file.exists():
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config_data = json.load(f)
+                
+                if 'model_limits' in config_data and isinstance(config_data['model_limits'], dict):
+                    # Update the MODEL_LIMITS dictionary with values from config
+                    for model, limit in config_data['model_limits'].items():
+                        self.MODEL_LIMITS[model] = int(limit)
+                    
+                    if self.debug:
+                        self.logger.debug(f"Loaded model limits from {config_path}")
+        except Exception as e:
+            self.logger.warning(f"Failed to load model limits from {config_path}: {str(e)}")
+    
+    def _create_fallback_tokenizer(self) -> Any:
         """Create a simple fallback tokenizer that approximates tokens."""
         class FallbackTokenizer:
             def encode(self, text):
@@ -169,15 +223,15 @@ class TokenCounter:
         
         return total_tokens
     
-    def will_exceed_limit(self, text_or_messages: Union[str, List[Dict[str, str]]], 
-                          model_name: Optional[str] = None,
-                          buffer_percentage: float = 0.1) -> Tuple[bool, int]:
+    def will_exceed_limit(self, text_or_messages: Union[str, List[Dict[str, str]]],
+                           model_name: Optional[str] = None,
+                           buffer_percentage: Optional[float] = None) -> Tuple[bool, int]:
         """Check if text or messages will exceed the token limit for the model.
         
         Args:
             text_or_messages: Text string or list of message dictionaries
             model_name: Optional model name to check against (defaults to instance model)
-            buffer_percentage: Percentage buffer to leave (0.1 = 10% buffer)
+            buffer_percentage: Percentage buffer to leave (defaults to self.buffer_percentage)
             
         Returns:
             Tuple of (will_exceed, token_count)
@@ -185,8 +239,11 @@ class TokenCounter:
         model = model_name or self.model_name
         limit = self.get_token_limit(model)
         
+        # Use provided buffer_percentage or instance default
+        buffer = buffer_percentage if buffer_percentage is not None else self.buffer_percentage
+        
         # Apply buffer
-        effective_limit = int(limit * (1 - buffer_percentage))
+        effective_limit = int(limit * (1 - buffer))
         
         # Count tokens
         if isinstance(text_or_messages, str):
@@ -204,7 +261,7 @@ class TokenCounter:
         
         return will_exceed, token_count
     
-    def chunk_text(self, text: str, chunk_size: Optional[int] = None, 
+    def chunk_text(self, text: str, chunk_size: Optional[int] = None,
                    overlap: int = 100) -> List[str]:
         """Split text into chunks that won't exceed token limits.
         
@@ -220,9 +277,9 @@ class TokenCounter:
             return []
         
         if chunk_size is None:
-            # Default to model limit with 20% buffer
+            # Default to model limit with configured buffer
             limit = self.get_token_limit(self.model_name)
-            chunk_size = int(limit * 0.8)
+            chunk_size = int(limit * self.chunk_buffer)
         
         # Encode the full text
         tokens = self.encoding.encode(text)
@@ -267,9 +324,9 @@ class TokenCounter:
             return ""
         
         if max_tokens is None:
-            # Default to model limit with 10% buffer
+            # Default to model limit with configured buffer
             limit = self.get_token_limit(self.model_name)
-            max_tokens = int(limit * 0.9)
+            max_tokens = int(limit * self.truncate_buffer)
         
         # Encode the text
         tokens = self.encoding.encode(text)
@@ -286,7 +343,7 @@ class TokenCounter:
         
         return truncated_text
     
-    def handle_oversized_input(self, text: str, target_percentage: float = 0.8) -> str:
+    def handle_oversized_input(self, text: str, target_percentage: Optional[float] = None) -> str:
         """Handle oversized input by intelligently reducing it to fit within token limits.
         
         This is more sophisticated than simple truncation - it tries to preserve
@@ -294,7 +351,7 @@ class TokenCounter:
         
         Args:
             text: The oversized text input
-            target_percentage: Target percentage of model's token limit (default 80%)
+            target_percentage: Target percentage of model's token limit (defaults to self.oversized_target)
             
         Returns:
             Reduced text that should fit within limits
@@ -302,9 +359,12 @@ class TokenCounter:
         if not text:
             return ""
         
+        # Use provided target_percentage or instance default
+        target = target_percentage if target_percentage is not None else self.oversized_target
+        
         # Get model limit and calculate target token count
         model_limit = self.get_token_limit(self.model_name)
-        target_tokens = int(model_limit * target_percentage)
+        target_tokens = int(model_limit * target)
         
         # Count current tokens
         current_tokens = self.count_tokens(text)

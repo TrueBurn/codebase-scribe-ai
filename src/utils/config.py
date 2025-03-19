@@ -34,7 +34,7 @@ DEFAULT_CONFIG = {
     'cache': {
         'enabled': True,
         'directory': '.cache',
-        'location': 'repo'  # 'repo' (in target repository) or 'home' (in user's home directory)
+        'location': 'home'  # 'repo' (in target repository) or 'home' (in user's home directory)
     },
     
     # Processing options

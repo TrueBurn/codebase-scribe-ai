@@ -25,7 +25,7 @@ bedrock:
 cache:
   enabled: true # Set to false to disable caching
   directory: ".cache" # Directory to store cache files
-  location: "repo" # Where to store the cache: "repo" (in target repository) or "home" (in user's home directory)
+  location: "home" # Where to store the cache: "repo" (in target repository) or "home" (in user's home directory)
 
 # Processing options
 optimize_order: false # Set to true to use LLM for determining optimal file processing order
