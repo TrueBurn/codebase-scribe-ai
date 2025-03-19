@@ -3,10 +3,9 @@
 import argparse
 import asyncio
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 import sys
 import logging
-from tqdm import tqdm
 import psutil
 import time
 import urllib3
@@ -34,10 +33,7 @@ from src.generators.readme import generate_readme
 from src.generators.architecture import generate_architecture
 from src.utils.cache import CacheManager
 from src.utils.progress import ProgressTracker
-from src.utils.parallel import ParallelProcessor
 from src.models.file_info import FileInfo
-from src.utils.memory import MemoryManager, memory_efficient
-from src.utils.docs_generator import DevDocsGenerator
 from src.clients.llm_factory import LLMClientFactory
 from src.clients.base_llm import BaseLLMClient
 
@@ -87,7 +83,6 @@ def setup_logging(debug=False, log_to_file=True):
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
 
-@memory_efficient(threshold=0.75)
 async def process_file(file_info: FileInfo, repo_path: Path, llm_client: BaseLLMClient, cache: Optional[CacheManager] = None) -> Optional[str]:
     """Process a single file with the LLM."""
     try:
@@ -228,67 +223,6 @@ async def determine_processing_order(
             logging.error(f"Error determining processing order: {e}", exc_info=True)
             print("\nFailed to determine optimal order, using default order")
             return list(file_manifest.keys())
-
-async def summarize_files(
-    file_manifest: Dict[str, FileInfo],
-    repo_path: Path,
-    ollama: OllamaClient,
-    cache: CacheManager,
-    progress: ProgressTracker,
-    config: Dict
-) -> None:
-    """Process files in parallel with controlled concurrency."""
-    # Conditionally get optimal processing order from LLM
-    processing_order = None
-    if config.get('optimize_order', False):
-        processing_order = await determine_processing_order(file_manifest, ollama)
-    else:
-        processing_order = list(file_manifest.keys())
-    
-    # Process files in the determined order
-    processable_files = [
-        file_manifest[path] for path in processing_order
-        if not file_manifest[path].is_binary
-    ]
-    
-    # Calculate optimal concurrency based on system resources
-    max_concurrent = calculate_max_concurrent()
-    
-    # Configure parallel processor
-    processor = ParallelProcessor(max_concurrent, progress)
-    
-    # Process files in parallel while maintaining relative order
-    results = await processor.process_items(
-        items=processable_files,
-        operation=lambda info: process_file(info, repo_path, ollama, cache),
-        task_name_fn=lambda info: f"Summarize {info.path}"
-    )
-    
-    # Update file manifest with results
-    for file_info, result in zip(processable_files, results):
-        if result.success and result.result:
-            file_info.summary = result.result
-    
-    # Save cache after all processing is complete
-    cache.save()
-
-async def generate_project_context(analyzer: CodebaseAnalyzer) -> Dict:
-    """Generate project-wide context for summaries."""
-    # Include all non-binary files for context
-    source_files = [info for info in analyzer.file_manifest.values() 
-                   if not info.is_binary]
-    
-    key_components = {}
-    for file_info in source_files:
-        if file_info.exports:
-            key_components[str(file_info.path)] = list(file_info.exports)
-    
-    return {
-        'project_name': analyzer.repo_path.name,
-        'file_count': len(analyzer.file_manifest),
-        'key_components': key_components,
-        'dependencies': [f"{src} → {dst}" for src, dst in analyzer.graph.edges()]
-    }
 
 async def process_files(
     manifest: Dict[str, FileInfo],
@@ -456,84 +390,6 @@ async def process_files(
         print(f"Cache hit rate: {cache_hits}/{total_files} files ({cache_hit_rate:.1f}%)")
     
     return ordered_manifest
-
-async def create_github_pr(repo_path, branch_name, pr_title, pr_body, github_repo_url):
-    """Create a GitHub pull request."""
-    try:
-        # Extract owner and repo name from the GitHub URL
-        parsed_url = urllib.parse.urlparse(github_repo_url)
-        path_parts = parsed_url.path.strip('/').split('/')
-        if len(path_parts) < 2:
-            print(f"Invalid GitHub URL format: {github_repo_url}")
-            return False
-            
-        owner = path_parts[0]
-        repo_name = path_parts[1]
-        full_repo_name = f"{owner}/{repo_name}"
-        
-        # Get GitHub token from environment
-        github_token = os.environ.get('GITHUB_TOKEN')
-        if not github_token:
-            print("Error: GitHub token is required for PR creation. Use --github-token or set GITHUB_TOKEN environment variable.")
-            return False
-            
-        print(f"Using GitHub token from environment variables")
-        
-        # Initialize GitHub client
-        from github import Github
-        g = Github(github_token)
-        
-        # Get the repository
-        repo = g.get_repo(full_repo_name)
-        
-        # Get the default branch from the repository
-        default_branch = repo.default_branch
-        print(f"Using repository's default branch: {default_branch}")
-        
-        # Check if branch already exists
-        try:
-            existing_branch = repo.get_branch(branch_name)
-            print(f"Branch '{branch_name}' already exists")
-            
-            # Check for existing PRs from this branch
-            existing_prs = repo.get_pulls(state='open', head=f"{owner}:{branch_name}")
-            for pr in existing_prs:
-                print(f"Closing existing PR #{pr.number}: {pr.title}")
-                pr.edit(state="closed")
-            
-            # Delete the existing branch
-            print(f"Deleting existing branch: {branch_name}")
-            # GitHub API doesn't directly support branch deletion, so we need to delete the reference
-            ref = repo.get_git_ref(f"heads/{branch_name}")
-            ref.delete()
-            print(f"Branch '{branch_name}' deleted successfully")
-            
-            # Need to push the branch again after deletion
-            push_success = push_branch_to_remote(repo_path, branch_name, github_token, github_repo_url)
-            if not push_success:
-                print("Failed to push branch after deletion. Aborting PR creation.")
-                return False
-                
-        except Exception as e:
-            # Branch doesn't exist, which is fine
-            if "Not Found" not in str(e):
-                print(f"Warning when checking branch: {str(e)}")
-        
-        # Create the pull request
-        pr = repo.create_pull(
-            title=pr_title,
-            body=pr_body,
-            head=branch_name,
-            base=default_branch
-        )
-        
-        print(f"✅ Pull request created successfully: {pr.html_url}")
-        return pr.html_url
-        
-    except Exception as e:
-        print(f"Error creating pull request: {str(e)}")
-        print("\n❌ Failed to create pull request")
-        return False
 
 # Update the add_ai_attribution function to be simpler and more focused
 def add_ai_attribution(content: str, doc_type: str = "documentation", badges: str = "") -> str:

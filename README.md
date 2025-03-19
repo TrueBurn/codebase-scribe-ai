@@ -370,10 +370,8 @@ src/
 └── utils/             # Utility functions
     ├── cache.py       # Caching system
     ├── config.py      # Configuration
-    ├── docs_generator.py  # Documentation
     ├── link_validator.py  # Link validation
     ├── markdown_validator.py  # Markdown checks
-    ├── parallel.py    # Parallel processing
     ├── progress.py    # Progress tracking
     ├── prompt_manager.py  # Prompt handling
     └── readability.py # Readability scoring

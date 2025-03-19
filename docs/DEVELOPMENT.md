@@ -131,10 +131,8 @@ src/
 └── utils/             # Utility functions
     ├── cache.py       # Caching system
     ├── config.py      # Configuration
-    ├── docs_generator.py  # Documentation
     ├── link_validator.py  # Link validation
     ├── markdown_validator.py  # Markdown checks
-    ├── parallel.py    # Parallel processing
     ├── progress.py    # Progress tracking
     ├── prompt_manager.py  # Prompt handling
     └── readability.py # Readability scoring
@@ -260,7 +258,7 @@ pytest --cov=src --cov-report=html tests/
   ```
 - **Integration Tests**: Test component interactions
   ```bash
-  pytest tests/test_ollama.py tests/test_docs_generator.py
+  pytest tests/test_ollama.py
   ```
 
 ### Writing Tests
