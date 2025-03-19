@@ -25,6 +25,8 @@ def config_with_custom_values(temp_config_file):
         },
         'cache': {
             'enabled': False,
+            'hash_algorithm': 'sha256',
+            'global_directory': 'custom_cache_dir'
         }
     }
     
@@ -48,6 +50,8 @@ def test_load_custom_config(config_with_custom_values):
     assert config_manager.config['bedrock']['region'] == 'us-west-2'
     assert config_manager.config['bedrock']['model_id'] == 'test-model-id'
     assert config_manager.config['cache']['enabled'] == False
+    assert config_manager.config['cache']['hash_algorithm'] == 'sha256'
+    assert config_manager.config['cache']['global_directory'] == 'custom_cache_dir'
     
     # Check that default values are preserved for unspecified settings
     assert config_manager.config['ollama']['base_url'] == DEFAULT_CONFIG['ollama']['base_url']
@@ -113,6 +117,9 @@ def test_env_overrides(monkeypatch):
     monkeypatch.setenv(ENV_LLM_PROVIDER, 'bedrock')
     monkeypatch.setenv('DEBUG', 'true')
     monkeypatch.setenv('AWS_REGION', 'eu-west-1')
+    monkeypatch.setenv('CACHE_ENABLED', 'false')
+    monkeypatch.setenv('CACHE_HASH_ALGORITHM', 'sha256')
+    monkeypatch.setenv('CACHE_GLOBAL_DIRECTORY', 'custom_cache_dir')
     
     config_manager = ConfigManager("nonexistent_file.yaml")
     
@@ -120,6 +127,9 @@ def test_env_overrides(monkeypatch):
     assert config_manager.config['llm_provider'] == 'bedrock'
     assert config_manager.config['debug'] == True
     assert config_manager.config['bedrock']['region'] == 'eu-west-1'
+    assert config_manager.config['cache']['enabled'] == False
+    assert config_manager.config['cache']['hash_algorithm'] == 'sha256'
+    assert config_manager.config['cache']['global_directory'] == 'custom_cache_dir'
 
 def test_get_template():
     """Test template retrieval and formatting."""
@@ -186,6 +196,24 @@ def test_validation_bedrock_config(temp_config_file):
     config_manager = ConfigManager(temp_config_file)
     # Should fall back to default config due to validation error
     assert config_manager.config['bedrock'] == DEFAULT_CONFIG['bedrock']
+
+def test_validation_cache_config(temp_config_file):
+    """Test validation of cache configuration."""
+    # Test invalid hash algorithm
+    with open(temp_config_file, 'w') as f:
+        yaml.dump({'cache': {'hash_algorithm': 'invalid_algorithm'}}, f)
+    
+    config_manager = ConfigManager(temp_config_file)
+    # Should fall back to default config due to validation error
+    assert config_manager.config['cache'] == DEFAULT_CONFIG['cache']
+    
+    # Test invalid global_directory type
+    with open(temp_config_file, 'w') as f:
+        yaml.dump({'cache': {'global_directory': 123}}, f)
+    
+    config_manager = ConfigManager(temp_config_file)
+    # Should fall back to default config due to validation error
+    assert config_manager.config['cache'] == DEFAULT_CONFIG['cache']
 
 def test_dump_config():
     """Test dumping configuration in different formats."""

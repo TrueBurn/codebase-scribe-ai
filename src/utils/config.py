@@ -29,6 +29,8 @@ Configuration Schema:
         - enabled: Whether caching is enabled
         - directory: Cache directory name
         - location: Cache location ('repo' or 'home')
+        - hash_algorithm: Hash algorithm for file content hashing ('md5', 'sha1', or 'sha256')
+        - global_directory: Directory name for global cache when location is 'home'
     - optimize_order: Use LLM to determine optimal file processing order
     - preserve_existing: Preserve and enhance existing documentation
     - no_cache: Disable caching via command line
@@ -55,6 +57,8 @@ ENV_AWS_REGION = 'AWS_REGION'
 ENV_AWS_BEDROCK_MODEL_ID = 'AWS_BEDROCK_MODEL_ID'
 ENV_AWS_VERIFY_SSL = 'AWS_VERIFY_SSL'
 ENV_CACHE_ENABLED = 'CACHE_ENABLED'
+ENV_CACHE_HASH_ALGORITHM = 'CACHE_HASH_ALGORITHM'
+ENV_CACHE_GLOBAL_DIRECTORY = 'CACHE_GLOBAL_DIRECTORY'
 
 # Type definitions for configuration
 class OllamaConfigDict(TypedDict):
@@ -81,6 +85,8 @@ class CacheConfigDict(TypedDict):
     enabled: bool
     directory: str
     location: Literal['repo', 'home']
+    hash_algorithm: str
+    global_directory: str
 
 class BlacklistConfigDict(TypedDict):
     extensions: List[str]
@@ -134,7 +140,9 @@ DEFAULT_CONFIG: ConfigDict = {
     'cache': {
         'enabled': True,
         'directory': '.cache',
-        'location': 'home'  # 'repo' (in target repository) or 'home' (in user's home directory)
+        'location': 'home',  # 'repo' (in target repository) or 'home' (in user's home directory)
+        'hash_algorithm': 'md5',  # Hash algorithm to use for file content hashing (md5, sha1, or sha256)
+        'global_directory': '.readme_generator_cache'  # Directory name for global cache when location is "home"
     },
     
     # Processing options
@@ -366,6 +374,16 @@ class ConfigManager:
         # Cache enabled override
         if os.getenv(ENV_CACHE_ENABLED):
             config['cache']['enabled'] = os.getenv(ENV_CACHE_ENABLED).lower() in ('true', '1', 'yes')
+            
+        # Cache hash algorithm override
+        if os.getenv(ENV_CACHE_HASH_ALGORITHM):
+            hash_algo = os.getenv(ENV_CACHE_HASH_ALGORITHM)
+            if hash_algo in ['md5', 'sha1', 'sha256']:
+                config['cache']['hash_algorithm'] = hash_algo
+                
+        # Cache global directory override
+        if os.getenv(ENV_CACHE_GLOBAL_DIRECTORY):
+            config['cache']['global_directory'] = os.getenv(ENV_CACHE_GLOBAL_DIRECTORY)
         
         return config
     
@@ -418,6 +436,12 @@ class ConfigManager:
         
         if cache_config.get('location') not in ['repo', 'home']:
             raise ConfigValidationError(f"Invalid cache location: {cache_config.get('location')}. Must be 'repo' or 'home'.")
+            
+        if cache_config.get('hash_algorithm') not in ['md5', 'sha1', 'sha256']:
+            raise ConfigValidationError(f"Invalid hash algorithm: {cache_config.get('hash_algorithm')}. Must be 'md5', 'sha1', or 'sha256'.")
+            
+        if not isinstance(cache_config.get('global_directory', ''), str):
+            raise ConfigValidationError("Cache global_directory must be a string.")
     
     def get_template(self, category: str, name: str, context: Optional[Dict[str, Any]] = None) -> str:
         """
