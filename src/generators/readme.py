@@ -1,7 +1,6 @@
 from pathlib import Path
 from ..utils.markdown_validator import MarkdownValidator
 from ..utils.readability import ReadabilityScorer
-from ..utils.link_validator import LinkValidator
 from ..clients.base_llm import BaseLLMClient
 from ..analyzers.codebase import CodebaseAnalyzer
 import logging
@@ -204,22 +203,24 @@ async def generate_readme(
         # Validate links in the generated content
         content = readme_content
         
-        # Validate markdown structure
+        # Validate markdown structure and links
         md_validator = MarkdownValidator(content)
-        markdown_issues = md_validator.validate()
-        if markdown_issues:
-            logging.warning("Found markdown formatting issues in new README:")
-            for issue in markdown_issues:
-                logging.warning(f"  - {issue}")
+        validation_issues = await md_validator.validate_with_link_checking(repo_path)
         
-        # Validate links
-        validator = LinkValidator(repo_path)
-        invalid_links = await validator.validate_document(content, repo_path)
-        
-        if invalid_links:
-            logging.warning(f"Found {len(invalid_links)} invalid links in new README")
-            for issue in invalid_links:
-                logging.warning(f"  - {issue}")
+        # Log markdown and link issues
+        if validation_issues:
+            link_issues = [issue for issue in validation_issues if "Link issue" in issue.message]
+            format_issues = [issue for issue in validation_issues if "Link issue" not in issue.message]
+            
+            if format_issues:
+                logging.warning("Found markdown formatting issues in new README:")
+                for issue in format_issues:
+                    logging.warning(f"  - {issue}")
+            
+            if link_issues:
+                logging.warning(f"Found {len(link_issues)} invalid links in new README")
+                for issue in link_issues:
+                    logging.warning(f"  - {issue}")
         
         # Check readability
         scorer = ReadabilityScorer()

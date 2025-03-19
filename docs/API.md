@@ -10,6 +10,7 @@ This document details the key classes and functions in the AI README Generator.
 - [Utility Components](#utility-components)
   - [CacheManager](#cachemanager)
   - [LinkValidator](#linkvalidator)
+  - [MarkdownValidator](#markdownvalidator)
   - [ReadabilityScorer](#readabilityscorer)
 
 ## Core Components
@@ -207,11 +208,14 @@ class CacheManager:
 class LinkValidator:
     """Validates internal and external links in documentation."""
     
-    def __init__(self, repo_path: Path):
+    def __init__(self, repo_path: Path, debug: bool = False, timeout: float = 5.0, max_retries: int = 2):
         """Initialize link validator.
         
         Args:
             repo_path: Repository root path
+            debug: Enable debug output
+            timeout: Timeout for external link validation in seconds
+            max_retries: Maximum number of retry attempts for external links
         """
     
     async def validate_document(self, content: str, base_path: Path) -> List[LinkIssue]:
@@ -223,6 +227,86 @@ class LinkValidator:
             
         Returns:
             List of link validation issues
+        """
+        
+    def _text_to_anchor(self, text: str) -> str:
+        """Convert header text to GitHub-style anchor.
+        
+        Args:
+            text: Header text
+            
+        Returns:
+            Anchor ID
+        """
+        
+    async def _validate_link(self, url: str, line_number: int, base_path: Path) -> None:
+        """Validate a single link.
+        
+        Args:
+            url: URL to validate
+            line_number: Line number where the link appears
+            base_path: Base path for relative links
+        """
+        
+    def _validate_internal_link(self, url: str, line_number: int, base_path: Path) -> None:
+        """Validate internal file or anchor links.
+        
+        Args:
+            url: URL to validate
+            line_number: Line number where the link appears
+            base_path: Base path for relative links
+        """
+        
+    async def _validate_external_link(self, url: str, line_number: int) -> None:
+        """Validate external URLs with retry mechanism.
+        
+        Args:
+            url: URL to validate
+            line_number: Line number where the link appears
+        """
+```
+
+### MarkdownValidator
+
+```python
+class MarkdownValidator:
+    """Validates and fixes common markdown issues."""
+    
+    def __init__(self, content: str, max_line_length: int = 10000):
+        """Initialize the validator with markdown content.
+        
+        Args:
+            content: The markdown content to validate
+            max_line_length: Maximum line length to process (for performance)
+        """
+    
+    def validate(self) -> List[ValidationIssue]:
+        """Run all validation checks and return found issues.
+        
+        Returns:
+            A list of ValidationIssue objects representing all found issues
+        """
+    
+    async def validate_with_link_checking(self, repo_path: Path, base_path: Path = None) -> List[ValidationIssue]:
+        """Run all validation checks including comprehensive link validation.
+        
+        This method extends the standard validation with additional checks for link
+        validity, including checking if internal links point to existing files and
+        if external links are accessible.
+        
+        Args:
+            repo_path: The root path of the repository for resolving relative links
+            base_path: The base path for resolving relative links (defaults to repo_path)
+            
+        Returns:
+            A list of ValidationIssue objects representing all found issues
+        """
+    
+    def fix_common_issues(self) -> str:
+        """Attempt to fix common markdown issues automatically.
+        
+        Returns:
+            A string containing the fixed markdown content
         """
 ```
 
@@ -272,8 +356,12 @@ generator = DocumentationGenerator(file_manifest, config)
 readme_content = generator.generate_readme()
 
 # Validate documentation
-validator = LinkValidator(repo_path)
-issues = await validator.validate_document(readme_content, repo_path)
+markdown_validator = MarkdownValidator(readme_content)
+validation_issues = await markdown_validator.validate_with_link_checking(repo_path)
+
+# Or use LinkValidator directly for just link validation
+link_validator = LinkValidator(repo_path)
+link_issues = await link_validator.validate_document(readme_content, repo_path)
 ```
 
 ### Advanced Usage

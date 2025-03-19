@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Optional, Set, Dict, Tuple
 from dataclasses import dataclass
 import logging
+from .link_validator import LinkValidator
 
 # Constants for configuration
 MERMAID_DIAGRAM_TYPES = ['graph', 'flowchart', 'sequenceDiagram', 'classDiagram', 'gantt', 'pie', 'stateDiagram']
@@ -65,6 +66,42 @@ class MarkdownValidator:
         issues.extend(self._check_mermaid_syntax())
         issues.extend(self._check_table_formatting())
         issues.extend(self._check_image_syntax())
+        return issues
+        
+    async def validate_with_link_checking(self, repo_path: Path, base_path: Path = None) -> List[ValidationIssue]:
+        """
+        Run all validation checks including comprehensive link validation.
+        
+        This method extends the standard validation with additional checks for link
+        validity, including checking if internal links point to existing files and
+        if external links are accessible.
+        
+        Args:
+            repo_path: The root path of the repository for resolving relative links
+            base_path: The base path for resolving relative links (defaults to repo_path)
+            
+        Returns:
+            A list of ValidationIssue objects representing all found issues
+        """
+        # Get basic validation issues
+        issues = self.validate()
+        
+        # Add comprehensive link validation
+        if base_path is None:
+            base_path = repo_path
+            
+        # Use LinkValidator for comprehensive link checking
+        link_validator = LinkValidator(repo_path)
+        link_issues = await link_validator.validate_document(self.content, base_path)
+        
+        # Convert LinkIssue objects to ValidationIssue objects
+        for link_issue in link_issues:
+            issues.append(ValidationIssue(
+                line_number=link_issue.line_number,
+                message=f"Link issue ({link_issue.link}): {link_issue.message}",
+                severity=link_issue.severity
+            ))
+            
         return issues
     
     def _check_headers(self) -> List[ValidationIssue]:
