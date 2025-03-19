@@ -11,6 +11,7 @@ from collections import defaultdict
 import traceback
 from tqdm import tqdm
 import asyncio
+from ..utils.progress import ProgressTracker
 import logging
 from pydantic import BaseModel
 from typing import List, Optional
@@ -131,26 +132,7 @@ class OllamaClient(BaseLLMClient):
             logging.error(f"Error generating summary: {e}")
             return None
 
-    async def _update_progress(self, pbar):
-        """Updates progress bar while waiting for response."""
-        try:
-            while True:
-                # Format elapsed time into human readable format
-                elapsed = pbar.format_dict['elapsed']
-                minutes = int(elapsed // 60)
-                seconds = int(elapsed % 60)
-                time_str = f"{minutes:02d}:{seconds:02d}" if minutes else f"{seconds}s"
-                
-                # Set a clean description with the time - completely replace the description
-                # instead of appending to avoid duplication
-                base_desc = "Generating project overview"
-                pbar.set_description(f"{base_desc}: {time_str}")
-                
-                pbar.refresh()
-                
-                await asyncio.sleep(0.1)
-        except asyncio.CancelledError:
-            pass
+    # _update_progress method removed - now using ProgressTracker.update_progress_async
 
     def _fix_markdown_issues(self, content: str) -> str:
         """Fix common markdown formatting issues before returning content."""
@@ -166,13 +148,15 @@ class OllamaClient(BaseLLMClient):
     )
     async def generate_project_overview(self, file_manifest: dict) -> str:
         """Generate project overview based strictly on observed evidence."""
-        with tqdm(
+        # Get progress tracker instance
+        progress_tracker = ProgressTracker.get_instance(Path("."))
+        with progress_tracker.progress_bar(
             desc="Generating project overview",
             bar_format='{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}',
             ncols=150
         ) as pbar:
             try:
-                update_task = asyncio.create_task(self._update_progress(pbar))
+                update_task = asyncio.create_task(progress_tracker.update_progress_async(pbar))
                 
                 # Get detected technologies
                 tech_report = self._find_common_dependencies(file_manifest)
@@ -334,13 +318,15 @@ class OllamaClient(BaseLLMClient):
     )
     async def generate_architecture_content(self, file_manifest: dict, analyzer) -> str:
         """Generate architecture documentation content with flow diagrams."""
-        with tqdm(
+        # Get progress tracker instance
+        progress_tracker = ProgressTracker.get_instance(Path("."))
+        with progress_tracker.progress_bar(
             desc="Generating architecture documentation",
             bar_format='{desc} {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}',
             ncols=150
         ) as pbar:
             try:
-                update_task = asyncio.create_task(self._update_progress(pbar))
+                update_task = asyncio.create_task(progress_tracker.update_progress_async(pbar))
                 
                 # Ensure project structure is set
                 if not self.project_structure or len(self.project_structure) < 10:

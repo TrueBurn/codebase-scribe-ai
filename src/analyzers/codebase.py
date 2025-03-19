@@ -7,9 +7,9 @@ import logging
 import magic
 import re
 from tqdm import tqdm
-
 from ..models.file_info import FileInfo
 from ..utils.cache import CacheManager
+from ..utils.progress import ProgressTracker
 
 class CodebaseAnalyzer:
     """Analyzes repository structure and content."""
@@ -193,7 +193,14 @@ class CodebaseAnalyzer:
             
             # Show progress if requested
             if show_progress:
-                iterator = tqdm(all_files, desc="Analyzing repository", unit="files")
+                # Get or create the progress tracker instance
+                progress_tracker = ProgressTracker.get_instance(self.repo_path)
+                with progress_tracker.progress_bar(
+                    desc="Analyzing repository",
+                    total=len(all_files),
+                    unit="files"
+                ) as pbar:
+                    iterator = pbar
             else:
                 iterator = all_files
                 

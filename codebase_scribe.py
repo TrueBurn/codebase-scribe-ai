@@ -155,7 +155,9 @@ async def determine_processing_order(
     """Ask LLM to determine optimal file processing order based on project structure."""
     logging.info(f"Starting file ordering optimization for {len(file_manifest)} files")
     
-    with tqdm(
+    # Get progress tracker instance
+    progress_tracker = ProgressTracker.get_instance(Path("."))
+    with progress_tracker.progress_bar(
         desc="Determining optimal file processing order",
         total=5,  # Five stages: start, filtering, request, parsing, validation
         unit="step",
@@ -348,7 +350,9 @@ async def process_files(
     }
     
     # File processing progress bar (Green)
-    with tqdm(
+    # Get progress tracker instance
+    progress_tracker = ProgressTracker.get_instance(repo_path)
+    with progress_tracker.progress_bar(
         total=len(ordered_manifest),
         desc=f"Analyzing files{' (sequential)' if concurrency == 1 else f' (max {concurrency} concurrent)'}",
         unit="file",
@@ -753,10 +757,12 @@ async def main():
         print("\n")
 
         # Generate documentation with progress tracking
-        with tqdm(
-            total=2, 
-            desc="Generating documentation", 
-            unit="file", 
+        # Get progress tracker instance
+        progress_tracker = ProgressTracker.get_instance(repo_path)
+        with progress_tracker.progress_bar(
+            total=2,
+            desc="Generating documentation",
+            unit="file",
             ncols=150,
             bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]',
             colour='yellow'
