@@ -11,6 +11,7 @@ A Python tool that generates comprehensive project documentation using AI models
 ## Documentation
 For detailed technical documentation and architecture information, see:
 - [Architecture Guide](docs/ARCHITECTURE.md) - System design and component interactions
+- [Configuration Guide](docs/CONFIG.md) - Detailed configuration options and usage
 - [GitHub Integration](docs/GITHUB_INTEGRATION.md) - GitHub utilities and integration features
 - [Development Guide](docs/DEVELOPMENT.md) - Development setup and workflows
 - [Contributing Guide](docs/CONTRIBUTING.md) - Guidelines for contributing to the project

@@ -130,7 +130,7 @@ src/
 │   └── file_info.py   # File information
 └── utils/             # Utility functions
     ├── cache.py       # Caching system
-    ├── config.py      # Configuration
+    ├── config.py      # Configuration (see [CONFIG.md](CONFIG.md))
     ├── link_validator.py  # Link validation
     ├── markdown_validator.py  # Markdown checks
     ├── progress.py    # Progress tracking
@@ -163,6 +163,13 @@ src/
 - Memory optimization
 - Link validation
 - Readability scoring
+
+### 5. Configuration System
+- Manages application settings
+- Provides defaults and overrides
+- Supports environment variables
+- Validates configuration values
+- See [CONFIG.md](CONFIG.md) for detailed documentation
 
 ## Development Workflow
 
