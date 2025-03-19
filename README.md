@@ -9,7 +9,11 @@
 A Python tool that generates comprehensive project documentation using AI models. It analyzes your codebase, generates documentation, validates links, checks readability, and ensures high-quality output with flexible AI provider options.
 
 ## Documentation
-For detailed technical documentation and architecture information, see [ARCHITECTURE.md](docs/ARCHITECTURE.md)
+For detailed technical documentation and architecture information, see:
+- [Architecture Guide](docs/ARCHITECTURE.md) - System design and component interactions
+- [GitHub Integration](docs/GITHUB_INTEGRATION.md) - GitHub utilities and integration features
+- [Development Guide](docs/DEVELOPMENT.md) - Development setup and workflows
+- [Contributing Guide](docs/CONTRIBUTING.md) - Guidelines for contributing to the project
 
 ## Features
 

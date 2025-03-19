@@ -266,6 +266,7 @@ src/
 │   └── file_info.py   # File information
 └── utils/             # Utility functions
     ├── cache.py       # Caching system
+    ├── github_utils.py # GitHub integration utilities
     └── [other utility modules]
 ```
 
