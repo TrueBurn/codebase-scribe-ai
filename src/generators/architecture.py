@@ -3,7 +3,6 @@ from .mermaid import MermaidGenerator
 from ..utils.markdown_validator import MarkdownValidator
 from pathlib import Path
 from ..utils.link_validator import LinkValidator
-from ..utils.readability import ReadabilityScorer
 from ..clients.base_llm import BaseLLMClient
 import logging
 import re
