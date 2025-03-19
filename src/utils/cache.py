@@ -1,15 +1,16 @@
+# Standard library imports
 import json
-import time
-from pathlib import Path
-from typing import Optional, Dict, Any
-from abc import ABC, abstractmethod
-import sqlite3
-import pickle
-from dataclasses import dataclass
-import os
 import logging
-from ..models.file_info import FileInfo
+import os
+import pickle
 import re
+import sqlite3
+import time
+import hashlib
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional, Dict, Any, Union
 
 @dataclass
 class CacheEntry:
@@ -110,25 +111,48 @@ class MemoryCache(CacheBackend):
 def hash_path(path: Path) -> str:
     """Generate a stable hash for a file path."""
     return str(abs(hash(str(path.absolute()))) % 10000)
-
 class CacheManager:
-    """Manages caching of file summaries."""
+    """Manages caching of file summaries.
+    
+    This class provides functionality to cache file summaries and other data
+    to avoid redundant processing. It supports repository-aware caching with
+    content-based invalidation using file hashing.
+    """
+    
+    # Default cache directory name in user's home directory
+    DEFAULT_GLOBAL_CACHE_DIR = '.readme_generator_cache'
+    
+    # Default cache directory name in repository
+    DEFAULT_REPO_CACHE_DIR = '.cache'
+    
+    # Default hash algorithm
+    DEFAULT_HASH_ALGORITHM = 'md5'
     
     def __init__(self, enabled: bool = True, repo_identifier: str = None, repo_path: Optional[Path] = None, config: Optional[Dict[str, Any]] = None):
+        """Initialize the cache manager.
+        
+        Args:
+            enabled: Whether caching is enabled
+            repo_identifier: Unique identifier for the repository (e.g., GitHub repo name)
+            repo_path: Path to the repository
+            config: Configuration dictionary with cache settings
+        """
         self.enabled = enabled
         self.repo_identifier = repo_identifier
-        self.debug = False  # Add debug flag
+        self.debug = False  # Debug flag
         self._repo_path = repo_path  # Store the repository path
         
         # Get cache configuration
         self.cache_config = config.get('cache', {}) if config else {}
         cache_location = self.cache_config.get('location', 'repo')
-        cache_dir_name = self.cache_config.get('directory', '.cache')
+        cache_dir_name = self.cache_config.get('directory', self.DEFAULT_REPO_CACHE_DIR)
+        self.hash_algorithm = self.cache_config.get('hash_algorithm', self.DEFAULT_HASH_ALGORITHM)
         
         # Create cache directory based on location setting
         if cache_location == 'home' or not repo_path:
             # Use user's home directory
-            self.cache_dir = Path.home() / '.readme_generator_cache'
+            global_cache_dir = self.cache_config.get('global_directory', self.DEFAULT_GLOBAL_CACHE_DIR)
+            self.cache_dir = Path.home() / global_cache_dir
         else:
             # Use repository path with configured directory name
             self.cache_dir = repo_path / cache_dir_name
@@ -233,32 +257,24 @@ class CacheManager:
             logging.warning(f"Failed to clear cache: {e}")
             
     def get(self, key: str) -> Optional[str]:
-        """Get value from cache."""
+        """Get value from cache.
+        
+        Args:
+            key: Cache key (file path as string)
+            
+        Returns:
+            Cached value or None if not found
+        """
         return self.get_cached_summary(Path(key))
 
     def set(self, key: str, value: str) -> None:
-        """Set value in cache."""
+        """Set value in cache.
+        
+        Args:
+            key: Cache key (file path as string)
+            value: Value to cache
+        """
         self.save_summary(Path(key), value)
-
-    def _load_cache(self) -> None:
-        """Load cache from file."""
-        try:
-            if self.cache_file.exists():
-                with open(self.cache_file, 'r', encoding='utf-8') as f:
-                    self.cache_data = json.load(f)
-                self.enabled = True
-        except Exception as e:
-            logging.warning(f"Failed to load cache: {e}")
-            self.cache_data = {}
-            self.enabled = False
-
-    def _save_cache(self) -> None:
-        """Save cache to file."""
-        try:
-            with open(self.cache_file, 'w', encoding='utf-8') as f:
-                json.dump(self.cache_data, f, indent=2)
-        except Exception as e:
-            logging.warning(f"Failed to save cache: {e}")
 
     def save_summary(self, file_path: Path, summary: str) -> None:
         """Save a file summary to the cache."""
@@ -324,30 +340,19 @@ class CacheManager:
             return None
 
     def is_file_changed(self, file_path: Path) -> bool:
-        """Check if file has changed since last cache."""
-        if not self.enabled:
-            return True  # Always return True if cache is disabled
+        """Check if file has changed since last cache.
+        
+        This method compares the current file hash with the cached hash
+        to determine if the file has been modified.
+        
+        Args:
+            file_path: Path to the file to check
             
-        if not file_path.exists():
-            return True
-        
-        # Create a repository-relative cache key
-        cache_key = self._create_cache_key(file_path)
-        
-        with sqlite3.connect(self.db_path) as conn:
-            result = conn.execute(
-                'SELECT content_hash FROM file_cache WHERE file_path = ?',
-                (cache_key,)
-            ).fetchone()
-
-            if not result:
-                if self.debug:
-                    print(f"No cache entry for: {cache_key}")
-                return True
-
-            cached_hash = result[0]
-            current_hash = self._calculate_file_hash(file_path)
-            return current_hash != cached_hash
+        Returns:
+            True if file has changed or has no cache entry, False otherwise
+        """
+        # Use the internal method for consistency
+        return self._is_file_modified(file_path)
 
     def _create_cache_key(self, file_path: Path) -> str:
         """Create a consistent cache key for a file path.
@@ -381,12 +386,28 @@ class CacheManager:
         return file_path.name
 
     def _calculate_file_hash(self, file_path: Path) -> str:
-        """Calculate a hash of the file contents."""
-        import hashlib
+        """Calculate a hash of the file contents using the configured algorithm.
         
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            Hexadecimal hash string of the file contents
+        """
         try:
             with open(file_path, 'rb') as f:
-                file_hash = hashlib.md5(f.read()).hexdigest()
+                file_content = f.read()
+                
+            if self.hash_algorithm == 'md5':
+                file_hash = hashlib.md5(file_content).hexdigest()
+            elif self.hash_algorithm == 'sha1':
+                file_hash = hashlib.sha1(file_content).hexdigest()
+            elif self.hash_algorithm == 'sha256':
+                file_hash = hashlib.sha256(file_content).hexdigest()
+            else:
+                # Default to md5 if unknown algorithm specified
+                file_hash = hashlib.md5(file_content).hexdigest()
+                
             return file_hash
         except Exception as e:
             if self.debug:
@@ -425,20 +446,7 @@ class CacheManager:
                 print(f"Error checking if file modified: {e}")
             return True
 
-    def save(self):
-        # Skip saving in debug mode
-        if self.debug:
-            return
-            
-        """Save the cache to disk."""
-        try:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
-            with open(self.cache_file, 'w') as f:
-                json.dump(self._cache, f)
-        except Exception as e:
-            if self.debug:
-                logging.error(f"Error saving cache: {e}")
-            print(f"Warning: Could not save cache: {e}") 
+    # Removed unused save() method
 
     @classmethod
     def clear_all_caches(cls, cache_dir: Optional[Path] = None, repo_path: Optional[Path] = None, config: Optional[Dict[str, Any]] = None) -> None:

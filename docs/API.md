@@ -142,18 +142,34 @@ class DocumentationGenerator:
 
 ```python
 class CacheManager:
-    """Manages caching with multiple backends and intelligent invalidation."""
+    """Manages caching of file summaries.
     
-    def __init__(self, repo_path: Path, config: Dict[str, Any]):
-        """Initialize cache manager.
+    This class provides functionality to cache file summaries and other data
+    to avoid redundant processing. It supports repository-aware caching with
+    content-based invalidation using file hashing.
+    """
+    
+    # Default cache directory name in user's home directory
+    DEFAULT_GLOBAL_CACHE_DIR = '.readme_generator_cache'
+    
+    # Default cache directory name in repository
+    DEFAULT_REPO_CACHE_DIR = '.cache'
+    
+    # Default hash algorithm
+    DEFAULT_HASH_ALGORITHM = 'md5'
+    
+    def __init__(self, enabled: bool = True, repo_identifier: str = None, repo_path: Optional[Path] = None, config: Optional[Dict[str, Any]] = None):
+        """Initialize the cache manager.
         
         Args:
-            repo_path: Repository root path
-            config: Cache configuration including:
-                - enabled: bool (default: True)
+            enabled: Whether caching is enabled
+            repo_identifier: Unique identifier for the repository (e.g., GitHub repo name)
+            repo_path: Path to the repository
+            config: Configuration dictionary with cache settings including:
                 - directory: str (default: '.cache')
-                - ttl: int (default: 86400)
-                - max_size: int (default: 104857600)
+                - location: str (default: 'repo')
+                - hash_algorithm: str (default: 'md5')
+                - global_directory: str (default: '.readme_generator_cache')
                 
         Notes:
             - Creates cache directory if it doesn't exist
@@ -162,43 +178,107 @@ class CacheManager:
         """
     
     def _init_db(self):
-        """Initialize SQLite database.
+        """Initialize SQLite database for file caching.
         
         Creates the database and required tables if they don't exist.
-        Disables caching if initialization fails instead of raising an error.
+        """
+    
+    def get_repo_cache_dir(self, repo_path: Optional[Path] = None) -> Path:
+        """Get the cache directory for a repository.
+        
+        Args:
+            repo_path: Path to the repository (optional, uses stored path if not provided)
+            
+        Returns:
+            Path to the cache directory for the repository
         """
     
     def clear_repo_cache(self) -> None:
-        """Clear all cached data for this repository.
+        """Clear the cache for the current repository.
         
-        Removes both SQLite database and cache file.
-        Handles locked files gracefully.
+        Removes all entries from the SQLite database and vacuums it to reclaim space.
         """
     
     @classmethod
-    def clear_all_caches(cls, cache_dir: Path = Path('.cache')) -> None:
+    def clear_all_caches(cls, cache_dir: Optional[Path] = None, repo_path: Optional[Path] = None, config: Optional[Dict[str, Any]] = None) -> None:
         """Clear all caches for all repositories.
         
         Args:
-            cache_dir: Directory containing cache files
+            cache_dir: The cache directory to clear (default: None, will use config)
+            repo_path: The repository path to clear cache for (default: None)
+            config: Configuration dictionary (default: None)
+        """
+    
+    def get(self, key: str) -> Optional[str]:
+        """Get value from cache.
+        
+        Args:
+            key: Cache key (file path as string)
+            
+        Returns:
+            Cached value or None if not found
+        """
+    
+    def set(self, key: str, value: str) -> None:
+        """Set value in cache.
+        
+        Args:
+            key: Cache key (file path as string)
+            value: Value to cache
         """
     
     def get_cached_summary(self, file_path: Path) -> Optional[str]:
-        """Get cached summary for a file if available and valid.
+        """Get cached summary for a file.
         
         Args:
             file_path: Path to file
             
         Returns:
-            Cached summary if available and not expired
+            Cached summary or None if not found or outdated
         """
     
     def save_summary(self, file_path: Path, summary: str) -> None:
-        """Save summary to cache.
+        """Save a file summary to the cache.
         
         Args:
             file_path: Path to file
             summary: Summary to cache
+        """
+    
+    def is_file_changed(self, file_path: Path) -> bool:
+        """Check if file has changed since last cache.
+        
+        This method compares the current file hash with the cached hash
+        to determine if the file has been modified.
+        
+        Args:
+            file_path: Path to the file to check
+            
+        Returns:
+            True if file has changed or has no cache entry, False otherwise
+        """
+    
+    def _create_cache_key(self, file_path: Path) -> str:
+        """Create a consistent cache key for a file path.
+        
+        Always uses the path relative to the repository root, ensuring
+        cache hits even when the repository is cloned to different locations.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            Cache key string
+        """
+    
+    def _calculate_file_hash(self, file_path: Path) -> str:
+        """Calculate a hash of the file contents using the configured algorithm.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            Hexadecimal hash string of the file contents
         """
 ```
 

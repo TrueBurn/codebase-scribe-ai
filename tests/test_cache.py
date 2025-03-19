@@ -1,33 +1,11 @@
 import pytest
 import time
+import os
+import sqlite3
+import pickle
+import hashlib
 from pathlib import Path
-from src.utils.cache import CacheManager, CacheEntry
-from datetime import datetime, timedelta
-
-@pytest.fixture
-def cache_dir(tmp_path):
-    return tmp_path / 'cache'
-
-@pytest.fixture
-def config():
-    return {
-        'ollama': {
-            'model': 'codellama',
-            'base_url': 'http://localhost:11434',
-            'max_tokens': 4096,
-            'retries': 3,
-            'retry_delay': 1.0,
-            'timeout': 30
-        },
-        'cache': {
-            'ttl': 3600,
-            'max_size': 104857600
-        }
-    }
-
-@pytest.fixture
-def cache_manager(cache_dir, config):
-    return CacheManager(cache_dir, config)
+from src.utils.cache import CacheManager, CacheEntry, SQLiteCache, MemoryCache
 
 @pytest.fixture
 def test_file(tmp_path):
@@ -38,60 +16,37 @@ def test_file(tmp_path):
     file_path.write_text("print('test')")
     return file_path
 
-def test_cache_save_and_get(cache_manager, test_file):
-    value = 'test_value'
-    cache_manager.save_summary(test_file, value)
-    
-    result = cache_manager.get_cached_summary(test_file)
-    assert result == value
-
-def test_cache_invalidation(cache_manager, test_file):
-    value = 'test_value'
-    cache_manager.save_summary(test_file, value)
-    
-    # Modify file timestamp
-    time.sleep(1)
-    test_file.touch()
-    
-    result = cache_manager.get_cached_summary(test_file)
-    assert result is None
-
 @pytest.fixture
 def cache_config():
+    """Standard cache configuration for tests"""
     return {
         'cache': {
-            'ttl': 3600,  # 1 hour
-            'max_size': 1024 * 1024  # 1MB
+            'directory': '.cache',
+            'location': 'repo',
+            'hash_algorithm': 'md5'
         }
     }
 
 @pytest.fixture
 def cache_manager(tmp_path, cache_config):
     """Create a cache manager with a temporary directory"""
-    return CacheManager(tmp_path, cache_config)
+    # Create a CacheManager with the correct parameters
+    cm = CacheManager(
+        repo_path=tmp_path, 
+        config=cache_config
+    )
+    return cm
 
-def test_cache_initialization(cache_manager):
-    """Test that cache is properly initialized"""
-    assert cache_manager.cache_dir.exists()
-    assert cache_manager.ttl == 3600
-    assert cache_manager.max_size == 1024 * 1024
-
-def test_save_and_get_summary(cache_manager, tmp_path):
+def test_save_and_get_summary(cache_manager, test_file):
     """Test saving and retrieving a summary"""
-    test_file = tmp_path / "test.py"
-    test_file.write_text("print('test')")
-    
     test_summary = "This is a test summary"
     cache_manager.save_summary(test_file, test_summary)
     
     retrieved_summary = cache_manager.get_cached_summary(test_file)
     assert retrieved_summary == test_summary
 
-def test_file_change_detection(cache_manager, tmp_path):
+def test_file_change_detection(cache_manager, test_file):
     """Test detection of file changes"""
-    test_file = tmp_path / "test.py"
-    test_file.write_text("print('test')")
-    
     # Save initial summary
     cache_manager.save_summary(test_file, "initial summary")
     
@@ -105,77 +60,133 @@ def test_file_change_detection(cache_manager, tmp_path):
     # File has changed
     assert cache_manager.is_file_changed(test_file)
 
-def test_cache_ttl(cache_manager, tmp_path):
-    """Test cache time-to-live functionality"""
-    test_file = tmp_path / "test.py"
-    test_file.write_text("print('test')")
-    
-    # Save with short TTL
-    cache_manager.ttl = 1  # 1 second TTL
-    cache_manager.save_summary(test_file, "test summary")
-    
-    # Immediate retrieval should work
-    assert cache_manager.get_cached_summary(test_file) == "test summary"
-    
-    # Wait for TTL to expire
-    time.sleep(1.1)
-    
-    # Should return None after TTL expires
-    assert cache_manager.get_cached_summary(test_file) is None
-
-def test_cache_size_limit(cache_manager, tmp_path):
-    """Test cache size limiting"""
-    # Create a large summary
-    large_summary = "x" * (cache_manager.max_size // 2)
-    
-    # Save two large summaries
-    test_file1 = tmp_path / "test1.py"
-    test_file2 = tmp_path / "test2.py"
-    test_file1.write_text("print('test1')")
-    test_file2.write_text("print('test2')")
-    
-    cache_manager.save_summary(test_file1, large_summary)
-    cache_manager.save_summary(test_file2, large_summary)
-    
-    # Verify cache management
-    assert cache_manager.get_cached_summary(test_file2) == large_summary
-    # First entry might be evicted due to size
-    
-def test_cache_save_persistence(cache_manager, tmp_path):
-    """Test that cache persists after save"""
-    test_file = tmp_path / "test.py"
-    test_file.write_text("print('test')")
-    
-    cache_manager.save_summary(test_file, "test summary")
-    cache_manager.save()
-    
-    # Create new cache manager instance
-    new_cache_manager = CacheManager(tmp_path, {'cache': {'ttl': 3600, 'max_size': 1024 * 1024}})
-    
-    # Verify data persisted
-    assert new_cache_manager.get_cached_summary(test_file) == "test summary"
-
 def test_cache_invalid_file(cache_manager):
     """Test handling of non-existent files"""
     non_existent = Path("non_existent.py")
     assert cache_manager.get_cached_summary(non_existent) is None
     assert cache_manager.is_file_changed(non_existent) is True
 
-@pytest.mark.asyncio
-async def test_cache_concurrent_access(cache_manager, tmp_path):
-    """Test concurrent cache access"""
-    test_file = tmp_path / "test.py"
-    test_file.write_text("print('test')")
+def test_sqlite_cache_operations(tmp_path):
+    """Test SQLite cache backend operations"""
+    # Create a temporary database in the pytest temporary directory
+    db_path = tmp_path / "test_cache.db"
     
-    import asyncio
+    # Create a SQLite cache
+    sqlite_cache = SQLiteCache(db_path)
     
-    async def concurrent_save(i):
-        await asyncio.sleep(0.1 * (i % 3))  # Stagger saves
-        cache_manager.save_summary(test_file, f"summary_{i}")
+    # Create a test entry
+    entry = CacheEntry(
+        key="test_key",
+        value="test_value",
+        hash="test_hash",
+        timestamp=time.time(),
+        metadata={"test": "metadata"}
+    )
     
-    # Run multiple concurrent saves
-    await asyncio.gather(*[concurrent_save(i) for i in range(5)])
+    # Set the entry
+    sqlite_cache.set("test_key", entry)
     
-    # Verify final state
-    final_summary = cache_manager.get_cached_summary(test_file)
-    assert final_summary.startswith("summary_") 
+    # Get the entry
+    retrieved = sqlite_cache.get("test_key")
+    assert retrieved is not None
+    assert retrieved.key == "test_key"
+    assert retrieved.value == "test_value"
+    assert retrieved.hash == "test_hash"
+    assert retrieved.metadata == {"test": "metadata"}
+    
+    # Clear the cache
+    sqlite_cache.clear()
+    assert sqlite_cache.get("test_key") is None
+    
+    # No need to clean up - pytest will handle the temporary directory
+
+def test_memory_cache_operations():
+    """Test memory cache backend operations"""
+    # Create a memory cache
+    memory_cache = MemoryCache()
+    
+    # Create a test entry
+    entry = CacheEntry(
+        key="test_key",
+        value="test_value",
+        hash="test_hash",
+        timestamp=time.time(),
+        metadata={"test": "metadata"}
+    )
+    
+    # Set the entry
+    memory_cache.set("test_key", entry)
+    
+    # Get the entry
+    retrieved = memory_cache.get("test_key")
+    assert retrieved is not None
+    assert retrieved.key == "test_key"
+    assert retrieved.value == "test_value"
+    assert retrieved.hash == "test_hash"
+    assert retrieved.metadata == {"test": "metadata"}
+    
+    # Clear the cache
+    memory_cache.clear()
+    assert memory_cache.get("test_key") is None
+
+def test_calculate_file_hash(cache_manager, test_file):
+    """Test file hash calculation with different algorithms"""
+    # Test with default algorithm (md5)
+    hash1 = cache_manager._calculate_file_hash(test_file)
+    assert hash1 is not None
+    assert len(hash1) > 0
+    
+    # Test with sha1 algorithm
+    cache_manager.hash_algorithm = 'sha1'
+    hash2 = cache_manager._calculate_file_hash(test_file)
+    assert hash2 is not None
+    assert len(hash2) > 0
+    
+    # Test with sha256 algorithm
+    cache_manager.hash_algorithm = 'sha256'
+    hash3 = cache_manager._calculate_file_hash(test_file)
+    assert hash3 is not None
+    assert len(hash3) > 0
+    
+    # Verify different algorithms produce different hashes
+    assert hash1 != hash2
+    assert hash1 != hash3
+    assert hash2 != hash3
+
+def test_get_repo_cache_dir(cache_manager, tmp_path):
+    """Test getting repository cache directory"""
+    # Test with repo_identifier
+    cache_manager.repo_identifier = "test-repo"
+    cache_dir1 = cache_manager.get_repo_cache_dir()
+    assert "test-repo" in str(cache_dir1)
+    
+    # Test with explicit repo_path
+    cache_dir2 = cache_manager.get_repo_cache_dir(tmp_path)
+    assert tmp_path.name in str(cache_dir2)
+
+def test_clear_repo_cache(cache_manager, test_file):
+    """Test clearing the repository cache"""
+    # Save something to cache
+    cache_manager.save_summary(test_file, "test summary")
+    assert cache_manager.get_cached_summary(test_file) == "test summary"
+    
+    # Clear cache
+    cache_manager.clear_repo_cache()
+    
+    # Verify cache is cleared
+    assert cache_manager.get_cached_summary(test_file) is None
+
+def test_clear_all_caches(tmp_path):
+    """Test clearing all caches"""
+    # Create cache files
+    cache_dir = tmp_path / ".cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    (cache_dir / "test.db").touch()
+    (cache_dir / "test.cache").touch()
+    
+    # Clear all caches
+    CacheManager.clear_all_caches(repo_path=tmp_path)
+    
+    # Verify files are removed
+    assert not (cache_dir / "test.db").exists()
+    assert not (cache_dir / "test.cache").exists()

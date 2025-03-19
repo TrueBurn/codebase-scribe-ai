@@ -56,6 +56,8 @@ cache:
   enabled: true
   directory: ".cache"
   location: "home"  # "repo" or "home"
+  hash_algorithm: "md5"  # "md5", "sha1", or "sha256"
+  global_directory: ".readme_generator_cache"  # Used when location is "home"
 
 # Processing options
 optimize_order: false

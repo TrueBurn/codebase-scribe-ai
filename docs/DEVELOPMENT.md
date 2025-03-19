@@ -425,9 +425,9 @@ python codebase_scribe.py --repo ./test-repo --test-mode --debug
 ### Cache System Design
 The caching system uses a multi-level approach:
 - SQLite for persistent storage
-- File modification tracking
-- TTL-based invalidation
-- Size limits
+- Content-based invalidation using file hashing
+- Support for multiple hash algorithms (md5, sha1, sha256)
+- Repository-aware caching
 - Automatic initialization
 - Graceful fallback
 
@@ -466,7 +466,7 @@ CacheManager.clear_all_caches()
 - Logs initialization issues for debugging
 
 5. **Cache Invalidation**
-- Based on file modification time
-- TTL expiration
-- Size limits
+- Based on file content hash
+- Different hash algorithms available (md5, sha1, sha256)
+- Repository-aware cache keys
 - Manual clearing
