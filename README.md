@@ -15,6 +15,7 @@ For detailed technical documentation and architecture information, see:
 - [GitHub Integration](docs/GITHUB_INTEGRATION.md) - GitHub utilities and integration features
 - [Development Guide](docs/DEVELOPMENT.md) - Development setup and workflows
 - [Contributing Guide](docs/CONTRIBUTING.md) - Guidelines for contributing to the project
+- [Badges Guide](docs/BADGES.md) - Documentation for the badge generation system
 
 ## Features
 

@@ -267,6 +267,7 @@ src/
 └── utils/             # Utility functions
     ├── cache.py       # Caching system
     ├── github_utils.py # GitHub integration utilities
+    ├── badges.py      # Badge generation utility
     └── [other utility modules]
 ```
 
@@ -317,6 +318,7 @@ src/
 │   └── file_info.py   # File information
 └── utils/             # Utility functions
     ├── cache.py       # Caching system
+    ├── badges.py      # Badge generation utility
     └── [other utility modules]
 ```
 
@@ -377,4 +379,4 @@ blacklist:
 - IDE configuration directories
 - Temporary files
 
-This filtering ensures that generated documentation focuses on the essential project components while excluding unnecessary technical artifacts 
+This filtering ensures that generated documentation focuses on the essential project components while excluding unnecessary technical artifacts

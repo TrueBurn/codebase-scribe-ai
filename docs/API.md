@@ -12,6 +12,7 @@ This document details the key classes and functions in the AI README Generator.
   - [LinkValidator](#linkvalidator)
   - [MarkdownValidator](#markdownvalidator)
   - [ReadabilityScorer](#readabilityscorer)
+  - [BadgeGenerator](#badgegenerator)
 
 ## Core Components
 
@@ -418,6 +419,51 @@ class ReadabilityScorer:
         """
 ```
 
+### BadgeGenerator
+
+```python
+def generate_badges(file_manifest: Dict[str, FileInfo], repo_path: Path, badge_style: str = "for-the-badge") -> str:
+    """Generate appropriate badges based on repository content.
+    
+    This function analyzes the repository content to generate markdown badges for:
+    - License type
+    - CI/CD tools
+    - Testing frameworks
+    - Documentation
+    - Docker usage
+    - Programming languages and frameworks
+    - Databases
+    
+    Args:
+        file_manifest: Dictionary of files in the repository
+        repo_path: Path to the repository
+        badge_style: Style of badges to generate (default: for-the-badge)
+        
+    Returns:
+        str: Space-separated string of markdown badges
+        
+    Raises:
+        ValueError: If file_manifest is None or empty
+    """
+```
+
+The badge generation system uses various detection strategies to identify project characteristics:
+
+1. **License Detection**: Analyzes license files to determine the license type
+2. **CI/CD Detection**: Detects CI/CD configuration files
+3. **Testing Framework Detection**: Detects testing framework files and directories
+4. **Documentation Detection**: Checks for documentation files and directories
+5. **Docker Detection**: Checks for Docker-related files
+6. **Language and Framework Detection**: Detects programming languages and frameworks
+7. **Database Detection**: Detects database technologies
+
+The badges are generated using the shields.io service with the following format:
+```
+![Label](https://img.shields.io/badge/Label-Message-Color?style=Style&logo=LogoName&logoColor=LogoColor)
+```
+
+For more detailed information, see the [Badges Guide](BADGES.md).
+
 ## Usage Examples
 
 ### Basic Usage
@@ -480,5 +526,3 @@ The cache system is designed to fail gracefully:
 2. **Database Initialization**: Creates database and tables if missing
 3. **Access Errors**: Disables caching instead of failing
 4. **Concurrent Access**: Handles multiple processes safely
-
-# ... rest of existing content ... 
