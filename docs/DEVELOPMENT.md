@@ -134,7 +134,6 @@ src/
     ├── docs_generator.py  # Documentation
     ├── link_validator.py  # Link validation
     ├── markdown_validator.py  # Markdown checks
-    ├── memory.py      # Memory management
     ├── parallel.py    # Parallel processing
     ├── progress.py    # Progress tracking
     ├── prompt_manager.py  # Prompt handling
@@ -257,7 +256,7 @@ pytest --cov=src --cov-report=html tests/
 3. **Test Categories**
 - **Unit Tests**: Test individual components
   ```bash
-  pytest tests/test_analyzer.py tests/test_cache.py tests/test_memory.py
+  pytest tests/test_analyzer.py tests/test_cache.py
   ```
 - **Integration Tests**: Test component interactions
   ```bash

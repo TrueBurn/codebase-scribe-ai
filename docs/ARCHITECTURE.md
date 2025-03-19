@@ -27,8 +27,6 @@ graph TD
     F --> G[Markdown Files]
     H[Cache System] --> B
     H --> E
-    I[Memory Manager] --> B
-    I --> E
     J[Validators] --> F
 ```
 
@@ -182,13 +180,6 @@ class ProgressTracker:
 - Chunk-based handling
 - Automatic garbage collection
 - Memory usage monitoring
-
-```python
-class MemoryManager:
-    def __init__(self, target_usage: float = 0.75):
-        self.target_usage = target_usage
-        self.process = psutil.Process()
-```
 
 ### 2. Caching Strategy
 - Multi-level cache

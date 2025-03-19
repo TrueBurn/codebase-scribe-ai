@@ -42,12 +42,6 @@ For detailed technical documentation and architecture information, see [ARCHITEC
   - TTL support
   - Size-based limits
   
-- 🎯 **Memory Optimization**
-  - Streaming file processing
-  - Chunk-based handling
-  - Memory usage monitoring
-  - Automatic optimization
-  
 - ✅ **Validation**
   - Link checking (internal + external)
   - Markdown validation
@@ -375,7 +369,6 @@ src/
     ├── docs_generator.py  # Documentation
     ├── link_validator.py  # Link validation
     ├── markdown_validator.py  # Markdown checks
-    ├── memory.py      # Memory management
     ├── parallel.py    # Parallel processing
     ├── progress.py    # Progress tracking
     ├── prompt_manager.py  # Prompt handling

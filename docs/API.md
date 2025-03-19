@@ -9,7 +9,6 @@ This document details the key classes and functions in the AI README Generator.
   - [DocumentationGenerator](#documentationgenerator)
 - [Utility Components](#utility-components)
   - [CacheManager](#cachemanager)
-  - [MemoryManager](#memorymanager)
   - [LinkValidator](#linkvalidator)
   - [ReadabilityScorer](#readabilityscorer)
 
@@ -202,41 +201,6 @@ class CacheManager:
         """
 ```
 
-### MemoryManager
-
-```python
-class MemoryManager:
-    """Manages memory usage during processing."""
-    
-    def __init__(self, target_usage: float = 0.75):
-        """Initialize memory manager.
-        
-        Args:
-            target_usage: Target memory usage percentage
-        """
-    
-    def check_memory(self) -> bool:
-        """Check if memory usage is within acceptable limits.
-        
-        Returns:
-            True if memory usage is acceptable
-        """
-    
-    def optimize_memory(self) -> None:
-        """Attempt to optimize memory usage."""
-    
-    def chunk_text(self, text: str, chunk_size: int = 1024 * 1024) -> List[str]:
-        """Split large text into manageable chunks.
-        
-        Args:
-            text: Text to split
-            chunk_size: Maximum chunk size in bytes
-            
-        Returns:
-            List of text chunks
-        """
-```
-
 ### LinkValidator
 
 ```python
@@ -315,14 +279,6 @@ issues = await validator.validate_document(readme_content, repo_path)
 ### Advanced Usage
 
 ```python
-# Memory-efficient processing
-memory_manager = MemoryManager(target_usage=0.75)
-
-for file_path in large_files:
-    for chunk in memory_manager.stream_file_content(file_path):
-        # Process chunk
-        memory_manager.optimize_memory()
-
 # Readability analysis
 scorer = ReadabilityScorer()
 metrics = scorer.analyze_text(content, "overview")
