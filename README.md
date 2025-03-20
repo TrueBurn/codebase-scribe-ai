@@ -17,6 +17,7 @@ For detailed technical documentation and architecture information, see:
 - [Contributing Guide](docs/CONTRIBUTING.md) - Guidelines for contributing to the project
 - [Badges Guide](docs/BADGES.md) - Documentation for the badge generation system
 - [README Generator](docs/README_GENERATOR.md) - Documentation for the README generation system
+- [Mermaid Generator](docs/MERMAID_GENERATOR.md) - Documentation for the Mermaid diagram generation system
 
 ## Features
 
@@ -418,6 +419,7 @@ Contributions are welcome! Please read our [Contributing Guide](docs/CONTRIBUTIN
 - [Development Guide](docs/DEVELOPMENT.md)
 - [Contributing Guide](docs/CONTRIBUTING.md)
 - [README Generator](docs/README_GENERATOR.md)
+- [Mermaid Generator](docs/MERMAID_GENERATOR.md)
 
 ## License
 

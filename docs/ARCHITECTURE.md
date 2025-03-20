@@ -260,7 +260,8 @@ src/
 ├── clients/            # External service clients
 │   └── ollama.py       # Ollama API integration
 ├── generators/         # Content generation
-│   └── readme.py       # README generation
+│   ├── readme.py       # README generation
+│   └── mermaid.py      # Mermaid diagram generation
 ├── models/            # Data models
 │   └── file_info.py   # File information
 └── utils/             # Utility functions
@@ -311,7 +312,8 @@ src/
 ├── clients/            # External service clients
 │   └── ollama.py       # Ollama API integration
 ├── generators/         # Content generation
-│   └── readme.py       # README generation
+│   ├── readme.py       # README generation
+│   └── mermaid.py      # Mermaid diagram generation
 ├── models/            # Data models
 │   └── file_info.py   # File information
 └── utils/             # Utility functions

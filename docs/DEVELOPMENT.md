@@ -124,7 +124,8 @@ src/
 ├── clients/            # External service clients
 │   └── ollama.py       # Ollama API integration
 ├── generators/         # Content generation
-│   └── readme.py       # README generation
+│   ├── readme.py       # README generation
+│   └── mermaid.py      # Mermaid diagram generation
 ├── models/            # Data models
 │   └── file_info.py   # File information
 └── utils/             # Utility functions
@@ -260,7 +261,7 @@ pytest --cov=src --cov-report=html tests/
 3. **Test Categories**
 - **Unit Tests**: Test individual components
   ```bash
-  pytest tests/test_analyzer.py tests/test_cache.py
+  pytest tests/test_analyzer.py tests/test_cache.py tests/test_mermaid.py
   ```
 - **Integration Tests**: Test component interactions
   ```bash

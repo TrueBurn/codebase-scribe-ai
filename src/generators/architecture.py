@@ -18,17 +18,22 @@ def generate_architecture(analyzer: CodebaseAnalyzer) -> str:
         content += "No dependency relationships detected.\n"
         return content
     
-    mermaid = MermaidGenerator(analyzer.graph)
+    # Create MermaidGenerator with appropriate configuration
+    mermaid = MermaidGenerator(
+        analyzer.graph,
+        direction="TB",  # Top-to-bottom for better package visualization
+        sanitize_nodes=True
+    )
     
     # Add package-level overview
     content += "## Package Structure\n\n"
     content += "The following diagram shows the high-level package organization:\n\n"
-    content += mermaid.generate_package_diagram()
+    content += mermaid.generate_package_diagram(custom_direction="TB")
     
     # Add module dependencies
     content += "## Module Dependencies\n\n"
     content += "This flowchart shows the dependencies between modules:\n\n"
-    content += mermaid.generate_dependency_flowchart()
+    content += mermaid.generate_dependency_flowchart(custom_direction="LR")
     
     # Add detailed class diagram
     content += "## Class Structure\n\n"
