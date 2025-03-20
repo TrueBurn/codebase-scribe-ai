@@ -38,6 +38,9 @@ class OllamaClient(BaseLLMClient):
     """Handles all interactions with local Ollama instance."""
     
     def __init__(self, config: Dict[str, Any]):
+        # Call parent class constructor
+        super().__init__()
+        
         # Get Ollama config with defaults
         ollama_config = config.get('ollama', {})
         self.base_url = ollama_config.get('base_url', 'http://localhost:11434')
@@ -50,9 +53,7 @@ class OllamaClient(BaseLLMClient):
         self.prompt_template = PromptTemplate(config.get('template_path'))
         self.debug = config.get('debug', False)
         self.available_models = []
-        self.project_structure = None
         self.selected_model = None
-        self.token_counter = None
     
     async def initialize(self):
         """Async initialization"""
@@ -213,8 +214,25 @@ class OllamaClient(BaseLLMClient):
         """Build a tree-like project structure string."""
         return format_project_structure(file_manifest, self.debug)
 
-    def set_project_structure(self, file_manifest: dict) -> None:
-        """Set the project structure for context in all requests."""
+    def set_project_structure(self, structure: str) -> None:
+        """
+        Set the project structure for use in prompts.
+        
+        Args:
+            structure: String representation of the project structure
+        """
+        self.project_structure = structure
+        
+    def set_project_structure_from_manifest(self, file_manifest: Dict[str, Any]) -> None:
+        """
+        Set the project structure from a file manifest.
+        
+        This is a convenience method that formats the file manifest into a
+        string representation and then sets it as the project structure.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+        """
         self.project_structure = self._format_project_structure(file_manifest)
 
     @async_retry(
@@ -330,7 +348,7 @@ class OllamaClient(BaseLLMClient):
                 
                 # Ensure project structure is set
                 if not self.project_structure or len(self.project_structure) < 10:
-                    self.project_structure = self._format_project_structure(file_manifest)
+                    self.set_project_structure_from_manifest(file_manifest)
                     if self.debug:
                         print(f"Project structure generated ({len(self.project_structure)} chars)")
                 

@@ -37,6 +37,9 @@ class BedrockClient(BaseLLMClient):
     """Handles all interactions with AWS Bedrock."""
     
     def __init__(self, config: Dict[str, Any]):
+        # Call parent class constructor
+        super().__init__()
+        
         # Load environment variables from .env file
         load_dotenv()
         
@@ -64,7 +67,6 @@ class BedrockClient(BaseLLMClient):
         self.timeout = bedrock_config.get('timeout', 120)
         
         self.debug = config.get('debug', False)
-        self.project_structure = None
         
         # Add concurrency support
         self.concurrency = bedrock_config.get('concurrency', 1)
@@ -87,7 +89,7 @@ class BedrockClient(BaseLLMClient):
         # Initialize Bedrock client with credentials from environment and longer timeout
         # AWS SDK will automatically use AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from env
         self.client = boto3.client(
-            'bedrock-runtime', 
+            'bedrock-runtime',
             region_name=self.region,
             verify=self.verify_ssl,
             config=BotocoreConfig(
@@ -100,9 +102,6 @@ class BedrockClient(BaseLLMClient):
         
         # Add temperature setting
         self.temperature = bedrock_config.get('temperature', 0)  # Default to 0 for deterministic output
-        
-        # Add token counter
-        self.token_counter = None
         
     async def initialize(self):
         """Async initialization"""
@@ -283,11 +282,28 @@ class BedrockClient(BaseLLMClient):
         temp_analyzer.file_manifest = file_manifest
         return temp_analyzer.derive_project_name(self.debug)
     
-    def set_project_structure(self, structure: str):
-        """Set the project structure for use in prompts."""
+    def set_project_structure(self, structure: str) -> None:
+        """
+        Set the project structure for use in prompts.
+        
+        Args:
+            structure: String representation of the project structure
+        """
         self.project_structure = structure
         if self.debug:
             print(f"Project structure set ({len(structure)} chars)")
+            
+    def set_project_structure_from_manifest(self, file_manifest: Dict[str, Any]) -> None:
+        """
+        Set the project structure from a file manifest.
+        
+        This is a convenience method that formats the file manifest into a
+        string representation and then sets it as the project structure.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+        """
+        self.project_structure = self._format_project_structure(file_manifest)
     
     def _build_project_structure(self, file_manifest: dict) -> str:
         """Build a tree-like project structure string."""
@@ -318,7 +334,7 @@ class BedrockClient(BaseLLMClient):
                     
                     # Ensure project structure is set
                     if not self.project_structure or len(self.project_structure) < 10:
-                        self.project_structure = self._format_project_structure(file_manifest)
+                        self.set_project_structure_from_manifest(file_manifest)
                         if self.debug:
                             print(f"Project structure generated ({len(self.project_structure)} chars)")
                     

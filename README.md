@@ -19,6 +19,7 @@ For detailed technical documentation and architecture information, see:
 - [README Generator](docs/README_GENERATOR.md) - Documentation for the README generation system
 - [Mermaid Generator](docs/MERMAID_GENERATOR.md) - Documentation for the Mermaid diagram generation system
 - [CodebaseAnalyzer](docs/CODEBASE_ANALYZER.md) - Documentation for the codebase analysis system
+- [LLM Clients](docs/LLM_CLIENTS.md) - Documentation for the LLM client system
 
 ## Features
 
@@ -422,6 +423,7 @@ Contributions are welcome! Please read our [Contributing Guide](docs/CONTRIBUTIN
 - [README Generator](docs/README_GENERATOR.md)
 - [Mermaid Generator](docs/MERMAID_GENERATOR.md)
 - [CodebaseAnalyzer](docs/CODEBASE_ANALYZER.md)
+- [LLM Clients](docs/LLM_CLIENTS.md)
 
 ## License
 

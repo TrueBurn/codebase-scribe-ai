@@ -94,8 +94,17 @@ class CodebaseAnalyzer:
 - `derive_project_name()`: Intelligently determines project name from repository
 - `analyze_python_files()`: Specialized analysis for Python files
 
-### 2. OllamaClient
-Handles all AI model interactions.
+### 2. LLM Clients
+Handles all AI model interactions through a common interface.
+
+#### Architecture
+```mermaid
+graph TD
+    A[BaseLLMClient] --> B[OllamaClient]
+    A[BaseLLMClient] --> C[BedrockClient]
+    D[LLMClientFactory] --> B
+    D[LLMClientFactory] --> C
+```
 
 #### Responsibilities
 - Model communication
@@ -103,14 +112,48 @@ Handles all AI model interactions.
 - Response processing
 - Error handling
 - Retry logic
+- Token counting and management
 
 #### Implementation
 ```python
-class OllamaClient:
-    def __init__(self, config: Dict):
-        self.model = config['model']
-        self.max_tokens = config['max_tokens']
-        self.retries = config['retries']
+class BaseLLMClient(ABC):
+    """Base abstract class for LLM clients."""
+    
+    VERSION = "1.0.0"
+    
+    def __init__(self):
+        """Initialize the base client."""
+        self.token_counter = None
+        self.project_structure = None
+    
+    @abstractmethod
+    async def initialize(self) -> None:
+        """Initialize the client."""
+        pass
+        
+    @abstractmethod
+    def init_token_counter(self) -> None:
+        """Initialize the token counter for this client."""
+        pass
+        
+    # Other abstract methods for generating content
+```
+
+#### Concrete Implementations
+```python
+class OllamaClient(BaseLLMClient):
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__()
+        self.base_url = config.get('ollama', {}).get('base_url', 'http://localhost:11434')
+        self.max_tokens = config.get('ollama', {}).get('max_tokens', 4096)
+        # ...
+
+class BedrockClient(BaseLLMClient):
+    def __init__(self, config: Dict[str, Any]):
+        super().__init__()
+        self.region = os.getenv('AWS_REGION') or config.get('bedrock', {}).get('region', 'us-east-1')
+        self.model_id = os.getenv('AWS_BEDROCK_MODEL_ID') or config.get('bedrock', {}).get('model_id')
+        # ...
 ```
 
 ### 3. Cache System
