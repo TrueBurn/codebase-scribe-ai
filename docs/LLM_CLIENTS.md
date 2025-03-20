@@ -8,6 +8,7 @@ This document provides detailed information about the LLM (Large Language Model)
 - [OllamaClient](#ollamaclient)
 - [BedrockClient](#bedrockclient)
 - [LLMClientFactory](#llmclientfactory)
+- [LLM Utilities](#llm-utilities)
 - [Usage Examples](#usage-examples)
 - [Extending with New Providers](#extending-with-new-providers)
 
@@ -258,6 +259,161 @@ class LLMClientFactory:
             logging.error(error_msg)
             raise ClientInitializationError(error_msg) from e
 ```
+
+## LLM Utilities
+
+The `llm_utils.py` module provides shared utility functions used by all LLM clients. These utilities handle common tasks like formatting project structure, analyzing dependencies, and processing LLM responses.
+
+### Key Features
+
+- Project structure formatting
+- Dependency analysis
+- File ordering optimization
+- Markdown formatting fixes
+- Configurable vendor file filtering
+
+### Core Utilities
+
+The module provides the following utility functions:
+
+#### Project Structure Formatting
+
+```python
+def format_project_structure(file_manifest: Dict[str, Dict], debug: bool = False) -> str:
+    """
+    Build a tree-like project structure string from file manifest.
+    
+    Args:
+        file_manifest: Dictionary mapping file paths to file information
+        debug: Whether to print debug information
+        
+    Returns:
+        A formatted string representing the project structure
+    """
+```
+
+This function creates a hierarchical tree representation of the project's file structure, making it easier for LLMs to understand the codebase organization.
+
+#### Dependency Analysis
+
+```python
+def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False) -> str:
+    """
+    Extract common dependencies from file manifest.
+    
+    Args:
+        file_manifest: Dictionary mapping file paths to file information
+        debug: Whether to print debug information
+        
+    Returns:
+        A formatted string listing detected dependencies
+    """
+```
+
+This function analyzes package.json and requirements.txt files to identify project dependencies, helping LLMs understand the project's technology stack.
+
+#### Key Component Identification
+
+```python
+def identify_key_components(file_manifest: Dict[str, Dict], debug: bool = False,
+                           max_components: int = DEFAULT_MAX_COMPONENTS) -> str:
+    """
+    Identify key components from file manifest.
+    
+    Args:
+        file_manifest: Dictionary mapping file paths to file information
+        debug: Whether to print debug information
+        max_components: Maximum number of key components to display
+        
+    Returns:
+        A formatted string listing key components
+    """
+```
+
+This function identifies the most important directories in the project based on file count, helping LLMs focus on the core components.
+
+#### Markdown Formatting
+
+```python
+def fix_markdown_issues(content: str) -> str:
+    """
+    Fix common markdown formatting issues before returning content.
+    
+    Args:
+        content: The markdown content to fix
+        
+    Returns:
+        The fixed markdown content
+    """
+```
+
+This function corrects common markdown formatting issues in LLM-generated content, ensuring consistent and well-formatted documentation.
+
+#### File Order Optimization
+
+```python
+def prepare_file_order_data(project_files: Dict[str, Dict], debug: bool = False,
+                           vendor_patterns: List[str] = DEFAULT_VENDOR_PATTERNS) -> Tuple[Dict[str, Dict], Dict[str, Dict], Dict[str, Dict]]:
+    """
+    Prepare data for file order optimization.
+    
+    Args:
+        project_files: Dictionary mapping file paths to file information
+        debug: Whether to print debug information
+        vendor_patterns: List of regex patterns to identify vendor/resource files
+        
+    Returns:
+        A tuple containing (core_files, resource_files, files_info)
+    """
+```
+
+This function separates core project files from vendor/resource files, enabling more efficient processing by LLMs.
+
+```python
+def process_file_order_response(content: str, core_files: Dict[str, Dict], resource_files: Dict[str, Dict], debug: bool = False) -> List[str]:
+    """
+    Process LLM response to extract file order.
+    
+    Args:
+        content: The LLM response content to process
+        core_files: Dictionary of core files to order
+        resource_files: Dictionary of resource files to append at the end
+        debug: Whether to print debug information
+        
+    Returns:
+        A list of file paths in the extracted order
+    """
+```
+
+This function processes LLM responses to extract an optimal file processing order, improving the quality of generated documentation.
+
+### Configuration Constants
+
+The module defines configurable constants for customization:
+
+```python
+# Maximum number of key components to display
+DEFAULT_MAX_COMPONENTS = 10
+
+# Default vendor patterns for file filtering
+DEFAULT_VENDOR_PATTERNS = [
+    r'[\\/]bootstrap[\\/]',           # Bootstrap files
+    r'[\\/]vendor[\\/]',              # Vendor directories
+    r'[\\/]wwwroot[\\/]lib[\\/]',     # Library resources
+    r'\.min\.(js|css|map)$',          # Minified files
+    r'\.css\.map$',                   # Source maps
+    r'\.ico$|\.png$|\.jpg$|\.gif$',   # Images
+    r'[\\/]node_modules[\\/]',        # Node modules
+    r'[\\/]dist[\\/]',                # Distribution files
+    r'[\\/]packages[\\/]',            # Package files
+    r'[\\/]PublishProfiles[\\/]',     # Publish profiles
+    r'\.pubxml(\.user)?$',            # Publish XML files
+    r'\.csproj(\.user)?$',            # Project files
+    r'\.sln$'                         # Solution files
+]
+```
+
+These constants can be adjusted to customize the behavior of the utility functions.
 
 ## Usage Examples
 

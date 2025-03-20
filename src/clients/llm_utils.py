@@ -1,16 +1,45 @@
 """Shared utilities for LLM clients."""
-from typing import Dict, Any, List
+import json
 import logging
-from pathlib import Path
 import re
 from collections import defaultdict
-import json
+from pathlib import Path
+from typing import List, Tuple, Dict, Optional
+# Default configuration values that could be moved to a config file
+DEFAULT_MAX_COMPONENTS = 10  # Maximum number of key components to display
 
-def format_project_structure(file_manifest: dict, debug: bool = False) -> str:
-    """Build a tree-like project structure string from file manifest."""
+# Default vendor patterns for file filtering
+DEFAULT_VENDOR_PATTERNS = [
+    r'[\\/]bootstrap[\\/]',           # Bootstrap files
+    r'[\\/]vendor[\\/]',              # Vendor directories
+    r'[\\/]wwwroot[\\/]lib[\\/]',     # Library resources
+    r'\.min\.(js|css|map)$',          # Minified files
+    r'\.css\.map$',                   # Source maps
+    r'\.ico$|\.png$|\.jpg$|\.gif$',   # Images
+    r'[\\/]node_modules[\\/]',        # Node modules
+    r'[\\/]dist[\\/]',                # Distribution files
+    r'[\\/]packages[\\/]',            # Package files
+    r'[\\/]PublishProfiles[\\/]',     # Publish profiles
+    r'\.pubxml(\.user)?$',            # Publish XML files
+    r'\.csproj(\.user)?$',            # Project files
+    r'\.sln$'                         # Solution files
+]
+
+def format_project_structure(file_manifest: Dict[str, Dict], debug: bool = False) -> str:
+    """
+    Build a tree-like project structure string from file manifest.
+    
+    Args:
+        file_manifest: Dictionary mapping file paths to file information
+        debug: Whether to print debug information
+        
+    Returns:
+        A formatted string representing the project structure
+    """
+    logging.debug("Formatting project structure")
     try:
         # Create a nested dictionary to represent the directory structure
-        directories = {}
+        directories: Dict[str, Dict] = {}
         
         for path in file_manifest.keys():
             parts = path.split('/')
@@ -28,7 +57,7 @@ def format_project_structure(file_manifest: dict, debug: bool = False) -> str:
             current_dir['_files'].append(parts[-1])  # The last part is the filename
         
         # Format the directory structure as a string
-        def format_dir(dir_dict, indent=0):
+        def format_dir(dir_dict: Dict, indent: int = 0) -> List[str]:
             result = []
             # First list all files in the current directory
             if '_files' in dir_dict:
@@ -44,21 +73,37 @@ def format_project_structure(file_manifest: dict, debug: bool = False) -> str:
             return result
         
         structure_lines = format_dir(directories)
-        return '\n'.join(structure_lines)
+        formatted_structure = '\n'.join(structure_lines)
+        logging.debug(f"Project structure formatted successfully with {len(structure_lines)} lines")
+        return formatted_structure
     except Exception as e:
+        logging.error(f"Error formatting project structure: {e}")
         if debug:
             print(f"Error formatting project structure: {e}")
         return "Error formatting project structure"
 
-def find_common_dependencies(file_manifest: dict, debug: bool = False) -> str:
-    """Extract common dependencies from file manifest."""
+def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False) -> str:
+    """
+    Extract common dependencies from file manifest.
+    
+    Args:
+        file_manifest: Dictionary mapping file paths to file information
+        debug: Whether to print debug information
+        
+    Returns:
+        A formatted string listing detected dependencies
+    """
+    logging.debug("Finding common dependencies")
     try:
         # Collect all dependencies
         dependencies = defaultdict(int)
+        package_json_count = 0
+        requirements_txt_count = 0
         
         # Look for package.json files
         for path, info in file_manifest.items():
             if path.endswith('package.json') and not info.get('is_binary', False):
+                package_json_count += 1
                 try:
                     content = info.get('content', '')
                     if content and '"dependencies"' in content:
@@ -72,12 +117,14 @@ def find_common_dependencies(file_manifest: dict, debug: bool = False) -> str:
                                 dep_version = dep_match.group(2)
                                 dependencies[f"{dep_name}@{dep_version}"] += 1
                 except Exception as e:
+                    logging.warning(f"Error parsing package.json at {path}: {e}")
                     if debug:
-                        print(f"Error parsing package.json: {e}")
+                        print(f"Error parsing package.json at {path}: {e}")
         
         # Look for requirements.txt files
         for path, info in file_manifest.items():
             if path.endswith('requirements.txt') and not info.get('is_binary', False):
+                requirements_txt_count += 1
                 try:
                     content = info.get('content', '')
                     if content:
@@ -87,24 +134,41 @@ def find_common_dependencies(file_manifest: dict, debug: bool = False) -> str:
                             if line and not line.startswith('#'):
                                 dependencies[line] += 1
                 except Exception as e:
+                    logging.warning(f"Error parsing requirements.txt at {path}: {e}")
                     if debug:
-                        print(f"Error parsing requirements.txt: {e}")
+                        print(f"Error parsing requirements.txt at {path}: {e}")
+        
+        logging.debug(f"Processed {package_json_count} package.json and {requirements_txt_count} requirements.txt files")
         
         # Format the dependencies as a string
         if dependencies:
             result = "Detected dependencies:\n"
             for dep, count in sorted(dependencies.items(), key=lambda x: (-x[1], x[0])):
                 result += f"- {dep}\n"
+            logging.debug(f"Found {len(dependencies)} unique dependencies")
             return result
         else:
+            logging.debug("No dependencies detected")
             return "No dependencies detected."
     except Exception as e:
+        logging.error(f"Error finding common dependencies: {e}")
         if debug:
             print(f"Error finding common dependencies: {e}")
         return "Error finding common dependencies"
 
-def identify_key_components(file_manifest: dict, debug: bool = False) -> str:
-    """Identify key components from file manifest."""
+def identify_key_components(file_manifest: Dict[str, Dict], debug: bool = False, max_components: int = DEFAULT_MAX_COMPONENTS) -> str:
+    """
+    Identify key components from file manifest.
+    
+    Args:
+        file_manifest: Dictionary mapping file paths to file information
+        debug: Whether to print debug information
+        max_components: Maximum number of key components to display
+        
+    Returns:
+        A formatted string listing key components
+    """
+    logging.debug("Identifying key components")
     try:
         # Group files by directory
         directories = defaultdict(list)
@@ -119,17 +183,29 @@ def identify_key_components(file_manifest: dict, debug: bool = False) -> str:
         
         # Format the key components as a string
         result = "Key components:\n"
-        for directory, files in sorted_dirs[:10]:  # Limit to top 10 directories
+        for directory, files in sorted_dirs[:max_components]:
             result += f"- {directory} ({len(files)} files)\n"
         
+        logging.debug(f"Identified {min(len(sorted_dirs), max_components)} key components out of {len(sorted_dirs)} directories")
         return result
     except Exception as e:
+        logging.error(f"Error identifying key components: {e}")
         if debug:
             print(f"Error identifying key components: {e}")
         return "Error identifying key components"
 
-def get_default_order(core_files: dict, resource_files: dict) -> List[str]:
-    """Get a sensible default order when LLM ordering fails."""
+def get_default_order(core_files: Dict[str, Dict], resource_files: Dict[str, Dict]) -> List[str]:
+    """
+    Get a sensible default order when LLM ordering fails.
+    
+    Args:
+        core_files: Dictionary of core files to order
+        resource_files: Dictionary of resource files to append at the end
+        
+    Returns:
+        A list of file paths in a sensible order
+    """
+    logging.debug("Generating default file order")
     # Start with configuration files
     config_files = [p for p in core_files if p.endswith(('.json', '.config', '.settings'))]
     # Then other core files
@@ -137,10 +213,20 @@ def get_default_order(core_files: dict, resource_files: dict) -> List[str]:
     # End with resource files
     resource_list = list(resource_files.keys())
     
+    logging.debug(f"Default order: {len(config_files)} config files, {len(other_files)} other files, {len(resource_list)} resource files")
     return config_files + other_files + resource_list
 
 def fix_markdown_issues(content: str) -> str:
-    """Fix common markdown formatting issues before returning content."""
+    """
+    Fix common markdown formatting issues before returning content.
+    
+    Args:
+        content: The markdown content to fix
+        
+    Returns:
+        The fixed markdown content
+    """
+    logging.debug("Fixing markdown formatting issues")
     if not content:
         return content
         
@@ -148,14 +234,19 @@ def fix_markdown_issues(content: str) -> str:
     fixed_lines = []
     
     # Track header levels to ensure proper hierarchy
-    header_levels = []
+    header_levels: List[int] = []
     in_list = False
     list_indent_level = 0
+    fixes_applied = 0
     
     for i, line in enumerate(lines):
+        original_line = line
+        
         # Fix headers without space after #
         if re.match(r'^#+[^#\s]', line):
             line = re.sub(r'^(#+)([^#\s])', r'\1 \2', line)
+            if line != original_line:
+                fixes_applied += 1
         
         # Track header levels for hierarchy
         header_match = re.match(r'^(#+)\s', line)
@@ -165,19 +256,24 @@ def fix_markdown_issues(content: str) -> str:
             # Ensure there's a blank line before headers (except at the start)
             if i > 0 and fixed_lines and fixed_lines[-1].strip():
                 fixed_lines.append('')
+                fixes_applied += 1
             
             # Ensure there's a blank line after headers
             if i < len(lines) - 1 and lines[i+1].strip():
                 line = line + '\n'
+                fixes_applied += 1
             
             # Check header hierarchy
             if not header_levels or level <= header_levels[-1]:
                 header_levels.append(level)
             elif level > header_levels[-1] + 1:
                 # Header level jumped too much, adjust it
+                old_level = level
                 level = header_levels[-1] + 1
                 line = '#' * level + line[header_match.end(1):]
                 header_levels.append(level)
+                logging.debug(f"Fixed header hierarchy: H{old_level} -> H{level}")
+                fixes_applied += 1
             else:
                 header_levels.append(level)
         
@@ -190,37 +286,38 @@ def fix_markdown_issues(content: str) -> str:
                 list_indent_level = indent
             elif indent > list_indent_level and indent - list_indent_level != 2:
                 # Adjust indentation to be multiple of 2
+                old_indent = indent
                 new_indent = list_indent_level + 2
                 line = ' ' * new_indent + line.lstrip()
+                logging.debug(f"Fixed list indentation: {old_indent} -> {new_indent}")
+                fixes_applied += 1
         elif line.strip() and in_list:
             in_list = False
         
         fixed_lines.append(line)
     
-    return '\n'.join(fixed_lines)
+    result = '\n'.join(fixed_lines)
+    logging.debug(f"Applied {fixes_applied} markdown fixes")
+    return result
 
-def prepare_file_order_data(project_files: dict, debug: bool = False) -> tuple:
-    """Prepare data for file order optimization."""
-    # Define patterns for vendor/resource files to exclude from LLM analysis
-    vendor_patterns = [
-        r'[\\/]bootstrap[\\/]',           # Bootstrap files
-        r'[\\/]vendor[\\/]',              # Vendor directories
-        r'[\\/]wwwroot[\\/]lib[\\/]',     # Library resources
-        r'\.min\.(js|css|map)$',          # Minified files
-        r'\.css\.map$',                   # Source maps
-        r'\.ico$|\.png$|\.jpg$|\.gif$',   # Images
-        r'[\\/]node_modules[\\/]',        # Node modules
-        r'[\\/]dist[\\/]',                # Distribution files
-        r'[\\/]packages[\\/]',            # Package files
-        r'[\\/]PublishProfiles[\\/]',     # Publish profiles
-        r'\.pubxml(\.user)?$',            # Publish XML files
-        r'\.csproj(\.user)?$',            # Project files
-        r'\.sln$'                         # Solution files
-    ]
+def prepare_file_order_data(project_files: Dict[str, Dict], debug: bool = False,
+                           vendor_patterns: List[str] = DEFAULT_VENDOR_PATTERNS) -> Tuple[Dict[str, Dict], Dict[str, Dict], Dict[str, Dict]]:
+    """
+    Prepare data for file order optimization.
+    
+    Args:
+        project_files: Dictionary mapping file paths to file information
+        debug: Whether to print debug information
+        vendor_patterns: List of regex patterns to identify vendor/resource files
+        
+    Returns:
+        A tuple containing (core_files, resource_files, files_info)
+    """
+    logging.debug("Preparing file order data")
     
     # Filter out vendor/resource files
-    core_files = {}
-    resource_files = {}
+    core_files: Dict[str, Dict] = {}
+    resource_files: Dict[str, Dict] = {}
     
     if debug:
         print("Filtering files...")
@@ -239,7 +336,7 @@ def prepare_file_order_data(project_files: dict, debug: bool = False) -> tuple:
     # Build simplified file info for core files only
     if debug:
         print("Building file information...")
-    files_info = {}
+    files_info: Dict[str, Dict] = {}
     
     for path, info in core_files.items():
         # Get attributes with safe defaults
@@ -254,10 +351,23 @@ def prepare_file_order_data(project_files: dict, debug: bool = False) -> tuple:
             "exports": list(exports)
         }
     
+    logging.debug(f"Prepared file order data with {len(files_info)} files")
     return core_files, resource_files, files_info
 
-def process_file_order_response(content: str, core_files: dict, resource_files: dict, debug: bool = False) -> list:
-    """Process LLM response to extract file order."""
+def process_file_order_response(content: str, core_files: Dict[str, Dict], resource_files: Dict[str, Dict], debug: bool = False) -> List[str]:
+    """
+    Process LLM response to extract file order.
+    
+    Args:
+        content: The LLM response content to process
+        core_files: Dictionary of core files to order
+        resource_files: Dictionary of resource files to append at the end
+        debug: Whether to print debug information
+        
+    Returns:
+        A list of file paths in the extracted order
+    """
+    logging.debug("Processing file order response")
     try:
         # Try to parse as JSON first
         result = json.loads(content)
@@ -273,9 +383,17 @@ def process_file_order_response(content: str, core_files: dict, resource_files: 
                 
                 # Append resource files at the end
                 full_order = valid_paths + list(resource_files.keys())
+                logging.debug(f"Successfully extracted file order from JSON response with {len(valid_paths)} valid paths")
                 return full_order
-    except:
-        # If JSON parsing fails, try to extract file paths from text
+            else:
+                logging.warning("JSON response contained file_order but no valid paths")
+    except json.JSONDecodeError as e:
+        logging.debug(f"JSON parsing failed: {e}")
+    except Exception as e:
+        logging.error(f"Error processing file order response: {e}")
+    
+    # If JSON parsing fails, try to extract file paths from text
+    try:
         lines = content.split('\n')
         file_paths = []
         for line in lines:
@@ -288,7 +406,13 @@ def process_file_order_response(content: str, core_files: dict, resource_files: 
         if file_paths:
             # Append resource files at the end
             full_order = file_paths + list(resource_files.keys())
+            logging.debug(f"Extracted {len(file_paths)} file paths from text response")
             return full_order
+        else:
+            logging.warning("Could not extract any file paths from text response")
+    except Exception as e:
+        logging.error(f"Error extracting file paths from text: {e}")
     
     # If all else fails, use default order
-    return get_default_order(core_files, resource_files) 
+    logging.info("Using default file order")
+    return get_default_order(core_files, resource_files)

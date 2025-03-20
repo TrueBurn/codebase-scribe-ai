@@ -367,7 +367,9 @@ src/
 ├── analyzers/          # Code analysis tools
 │   └── codebase.py     # Repository analysis
 ├── clients/            # External service clients
-│   └── ollama.py       # Ollama API integration
+│   ├── ollama.py       # Ollama API integration
+│   ├── bedrock.py      # AWS Bedrock integration
+│   └── llm_utils.py    # Shared LLM utilities
 ├── generators/         # Content generation
 │   └── readme.py       # README generation
 ├── models/            # Data models
