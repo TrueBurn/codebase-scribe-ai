@@ -105,8 +105,18 @@ This is an [anchor link](#section-1) and an [invalid anchor link](#nonexistent-s
     @pytest.mark.asyncio
     async def test_validate_anchor_link_invalid(self):
         """Test validation of an invalid anchor link."""
-        # Skip this test for now as it's not critical
-        pytest.skip("Skipping anchor validation test")
+        validator = LinkValidator(self.repo_path)
+        validator.issues = []
+        
+        # Process the document to build the anchor map
+        content = self.test_md.read_text()
+        await validator.validate_document(content, self.test_dir)
+        validator.issues = []  # Clear issues from validation
+        
+        # Test an invalid anchor link
+        validator._validate_internal_link("#nonexistent-section", 1, self.test_dir)
+        assert len(validator.issues) == 1
+        assert "not found in document" in validator.issues[0].message
     
     @pytest.mark.asyncio
     async def test_validate_external_link_valid(self):
@@ -168,8 +178,32 @@ This is an [anchor link](#section-1) and an [invalid anchor link](#nonexistent-s
     @pytest.mark.asyncio
     async def test_validate_external_link_retry_success(self):
         """Test successful retry of an external link."""
-        # Skip this test for now as it's not critical
-        pytest.skip("Skipping retry success test")
+        validator = LinkValidator(self.repo_path)
+        validator.max_retries = 2  # Set max_retries directly
+        validator.issues = []
+        
+        # Mock httpx.AsyncClient to simulate a timeout then success
+        mock_client = MagicMock()
+        
+        # Create a mock response with status_code 200
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        
+        # First call raises a timeout exception, second call succeeds
+        mock_client.__aenter__.return_value.head = MagicMock(side_effect=[
+            httpx.TimeoutException("Timeout"),
+            mock_response
+        ])
+        
+        with patch('httpx.AsyncClient', return_value=mock_client):
+            with patch('asyncio.sleep', return_value=None):  # Mock sleep to speed up test
+                await validator._validate_external_link("https://example.com", 1)
+        
+        # Verify that the head method was called multiple times (initial + retries)
+        assert mock_client.__aenter__.return_value.head.call_count >= 2
+        
+        # Verify that no issues were added for a successful retry
+        assert all("timeout" not in issue.message.lower() for issue in validator.issues)
     
     @pytest.mark.asyncio
     async def test_caching(self):

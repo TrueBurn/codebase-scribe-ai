@@ -133,6 +133,24 @@ class TestIntegration:
     
     def test_error_handling(self, temp_repo, config):
         """Test error handling in the analyzer."""
-        # Skip this test for now - we'll need to fix the CodebaseAnalyzer class
-        # to properly validate the repository path
-        pytest.skip("Need to fix CodebaseAnalyzer.analyze_repository to validate repository path")
+        # Create a file to test with
+        file_path = temp_repo / "README.md"
+        if not file_path.exists():
+            with open(file_path, 'w') as f:
+                f.write("# Test README")
+        
+        # Test with a file path instead of a directory
+        # Should raise ValueError for file path during initialization
+        with pytest.raises(ValueError, match="Repository path is not a directory"):
+            analyzer = CodebaseAnalyzer(file_path, config)
+            
+        # Test with a non-existent path by creating a temporary path and then deleting it
+        import tempfile
+        import shutil
+        temp_dir = tempfile.mkdtemp()
+        non_existent_path = Path(temp_dir)
+        shutil.rmtree(temp_dir)  # Delete the directory to make it non-existent
+        
+        # Should raise ValueError for non-existent path during initialization
+        with pytest.raises(ValueError, match="Repository path does not exist"):
+            analyzer = CodebaseAnalyzer(non_existent_path, config)

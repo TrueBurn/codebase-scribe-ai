@@ -61,6 +61,17 @@ class CodebaseAnalyzer:
             self.logger = logging.getLogger('codebase_analyzer')
             self.logger.debug(f"Initialized analyzer for repo: {self.repo_path}")
         
+        # Validate repository path early to prevent issues with cache initialization
+        if not self.repo_path.exists():
+            error_msg = f"Repository path does not exist: {self.repo_path}"
+            logging.error(error_msg)
+            raise ValueError(error_msg)
+            
+        if not self.repo_path.is_dir():
+            error_msg = f"Repository path is not a directory: {self.repo_path}"
+            logging.error(error_msg)
+            raise ValueError(error_msg)
+        
         # Now load gitignore after debug is initialized
         self.gitignore = self._load_gitignore()
         
@@ -254,16 +265,7 @@ class CodebaseAnalyzer:
         if hasattr(self.cache, 'repo_path'):
             self.cache.repo_path = self.repo_path
         
-        # Validate repository path
-        if not self.repo_path.exists():
-            error_msg = f"Repository path does not exist: {self.repo_path}"
-            logging.error(error_msg)
-            raise ValueError(error_msg)
-            
-        if not self.repo_path.is_dir():
-            error_msg = f"Repository path is not a directory: {self.repo_path}"
-            logging.error(error_msg)
-            raise ValueError(error_msg)
+        # Repository path is already validated in the constructor
         
         try:
             # Initialize blacklist from config
