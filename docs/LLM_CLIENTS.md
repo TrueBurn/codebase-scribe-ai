@@ -158,17 +158,82 @@ class BedrockClient(BaseLLMClient):
 
 ## LLMClientFactory
 
-The `LLMClientFactory` is responsible for creating the appropriate LLM client based on configuration.
+The `LLMClientFactory` is responsible for creating the appropriate LLM client based on configuration. It uses a registration pattern to support extensibility and includes configuration validation.
+
+### Key Features
+
+- Client registration pattern for extensibility
+- Configuration validation
+- Specific error types for better error handling
+- Fallback mechanism from Bedrock to Ollama
 
 ### Implementation
 
 ```python
+class LLMClientFactoryError(Exception):
+    """Base exception for LLM client factory errors."""
+    pass
+
+class ConfigValidationError(LLMClientFactoryError):
+    """Exception raised when configuration validation fails."""
+    pass
+
+class ClientInitializationError(LLMClientFactoryError):
+    """Exception raised when client initialization fails."""
+    pass
+
 class LLMClientFactory:
-    """Factory for creating LLM clients."""
+    """
+    Factory for creating LLM clients.
     
-    @staticmethod
-    async def create_client(config: Dict[str, Any]) -> BaseLLMClient:
+    This factory creates and initializes LLM clients based on configuration.
+    
+    Supported providers:
+    - 'ollama': Uses the local Ollama instance (default)
+    - 'bedrock': Uses AWS Bedrock service
+    """
+    
+    # Registry of available client types
+    _client_registry: ClassVar[Dict[str, Type[BaseLLMClient]]] = {
+        'ollama': OllamaClient,
+        'bedrock': BedrockClient
+    }
+    
+    @classmethod
+    def register_client_type(cls, provider_name: str, client_class: Type[BaseLLMClient]) -> None:
+        """Register a new client type with the factory."""
+        cls._client_registry[provider_name.lower()] = client_class
+        logging.info(f"Registered new LLM client type: {provider_name}")
+    
+    @classmethod
+    def validate_config(cls, config: Dict[str, Any]) -> bool:
+        """Validate the configuration dictionary."""
+        if not isinstance(config, dict):
+            raise ConfigValidationError("Configuration must be a dictionary")
+        
+        # Check if provider is valid
+        provider = config.get('llm_provider', 'ollama').lower()
+        if provider not in cls._client_registry:
+            raise ConfigValidationError(
+                f"Invalid provider: {provider}. "
+                f"Supported providers: {', '.join(cls._client_registry.keys())}"
+            )
+        
+        # Provider-specific validation
+        # ...
+        
+        return True
+    
+    @classmethod
+    async def create_client(cls, config: Dict[str, Any]) -> BaseLLMClient:
         """Create and initialize an LLM client based on configuration."""
+        # Validate configuration
+        try:
+            cls.validate_config(config)
+        except ConfigValidationError as e:
+            logging.error(f"Configuration validation failed: {e}")
+            raise
+            
         provider = config.get('llm_provider', 'ollama').lower()
         
         if provider == 'bedrock':
@@ -177,14 +242,21 @@ class LLMClientFactory:
                 await client.initialize()
                 return client
             except Exception as e:
-                print(f"Error initializing Bedrock client: {e}")
+                error_msg = f"Error initializing Bedrock client: {e}"
+                logging.error(error_msg)
+                print(f"\n{error_msg}")
                 print("Falling back to Ollama client...")
                 provider = 'ollama'
         
         # Default to Ollama
-        client = OllamaClient(config)
-        await client.initialize()
-        return client
+        try:
+            client = OllamaClient(config)
+            await client.initialize()
+            return client
+        except Exception as e:
+            error_msg = f"Error initializing Ollama client: {e}"
+            logging.error(error_msg)
+            raise ClientInitializationError(error_msg) from e
 ```
 
 ## Usage Examples
@@ -236,7 +308,7 @@ To add a new LLM provider:
 
 1. Create a new class that inherits from `BaseLLMClient`
 2. Implement all abstract methods
-3. Add the new provider to the `LLMClientFactory`
+3. Register the new provider with the `LLMClientFactory`
 
 Example:
 
@@ -259,21 +331,19 @@ class NewProviderClient(BaseLLMClient):
     # Implement other abstract methods
 ```
 
-Then update the factory:
+Then register the new client type with the factory:
 
 ```python
-@staticmethod
-async def create_client(config: Dict[str, Any]) -> BaseLLMClient:
-    provider = config.get('llm_provider', 'ollama').lower()
-    
-    if provider == 'bedrock':
-        # Existing Bedrock code
-    elif provider == 'new_provider':
-        client = NewProviderClient(config)
-        await client.initialize()
-        return client
-    
-    # Default to Ollama
-    client = OllamaClient(config)
-    await client.initialize()
-    return client
+# Register the new provider
+LLMClientFactory.register_client_type('new_provider', NewProviderClient)
+
+# Now you can use it with the factory
+config = {
+    'llm_provider': 'new_provider',
+    'new_provider': {
+        # Provider-specific configuration
+    }
+}
+
+# Create the client using the factory
+llm_client = await LLMClientFactory.create_client(config)
