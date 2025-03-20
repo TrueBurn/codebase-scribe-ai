@@ -60,16 +60,39 @@ The central component for repository analysis.
 - AST parsing
 - Dependency tracking
 - Import/export detection
+- Project name derivation
+- Markdown header validation
 
 #### Implementation
 ```python
 class CodebaseAnalyzer:
-    def __init__(self, repo_path: Path, config: Dict):
-        self.repo_path = repo_path
+    """Analyzes repository structure and content.
+    
+    This class is responsible for scanning a repository, analyzing its files,
+    and building a comprehensive file manifest with metadata. It handles gitignore
+    rules, binary file detection, and can extract information about exports and
+    dependencies from source code files.
+    """
+    
+    # Constants for file types and special directories
+    BINARY_MIME_PREFIXES = ('text/', 'application/json', 'application/xml')
+    SOURCE_CODE_EXTENSIONS = {'.py', '.js', '.ts', '.cs', '.java'}
+    SPECIAL_FILES = {"README.md", "ARCHITECTURE.md", "CONTRIBUTING.md"}
+    SPECIAL_DIRS = {".github"}
+    
+    def __init__(self, repo_path: Path, config: dict):
+        self.repo_path = Path(repo_path).absolute()
         self.config = config
         self.file_manifest: Dict[str, FileInfo] = {}
         self.graph = nx.DiGraph()
 ```
+
+#### Key Methods
+- `analyze_repository()`: Main entry point for repository analysis
+- `should_include_file()`: Unified method for determining file inclusion
+- `build_dependency_graph()`: Creates a graph of file dependencies
+- `derive_project_name()`: Intelligently determines project name from repository
+- `analyze_python_files()`: Specialized analysis for Python files
 
 ### 2. OllamaClient
 Handles all AI model interactions.

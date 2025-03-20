@@ -1,18 +1,49 @@
+# Standard library imports
+import logging
+import os
+import re
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Set, Union, Callable
+
+# Third-party imports
+import magic
 import networkx as nx
 from gitignore_parser import parse_gitignore
-import os
-import logging
-import magic
-import re
 from tqdm import tqdm
+
+# Local imports
 from ..models.file_info import FileInfo
 from ..utils.cache import CacheManager
 from ..utils.progress import ProgressTracker
 
 class CodebaseAnalyzer:
-    """Analyzes repository structure and content."""
+    """Analyzes repository structure and content.
+    
+    This class is responsible for scanning a repository, analyzing its files,
+    and building a comprehensive file manifest with metadata. It handles gitignore
+    rules, binary file detection, and can extract information about exports and
+    dependencies from source code files.
+    
+    Attributes:
+        repo_path: Path to the repository root
+        config: Configuration dictionary
+        debug: Whether debug mode is enabled
+        file_manifest: Dictionary mapping file paths to FileInfo objects
+        graph: Dependency graph of files in the repository
+    """
+    
+    # Binary file detection constants
+    BINARY_MIME_PREFIXES = ('text/', 'application/json', 'application/xml')
+    BINARY_CHECK_BYTES = 1024
+    
+    # File extension constants
+    SOURCE_CODE_EXTENSIONS = {'.py', '.js', '.ts', '.cs', '.java'}
+    
+    # Special files that are always included
+    SPECIAL_FILES = {"README.md", "ARCHITECTURE.md", "CONTRIBUTING.md"}
+    
+    # Special directories that are always included
+    SPECIAL_DIRS = {".github"}
     
     def __init__(self, repo_path: Path, config: dict):
         # Windows-specific normalization
@@ -115,38 +146,124 @@ class CodebaseAnalyzer:
             return lambda _: False
 
     def is_binary(self, file_path: Path) -> bool:
-        """Check if a file is binary."""
+        """Check if a file is binary.
+        
+        Uses the python-magic library to determine if a file is binary based on its MIME type.
+        Falls back to a simple binary check if python-magic fails.
+        
+        Args:
+            file_path: Path to the file to check
+            
+        Returns:
+            bool: True if the file is binary, False otherwise
+        """
         try:
-            if not os.access(str(file_path), os.R_OK):
+            # Check if file is readable and exists
+            if not os.access(str(file_path), os.R_OK) or not file_path.exists():
+                if self.debug:
+                    logging.debug(f"File not accessible or doesn't exist: {file_path}")
                 return False
                 
-            if not file_path.exists():
-                return False
-                
+            # Use python-magic to determine MIME type
             mime = magic.from_file(str(file_path), mime=True)
-            return not mime.startswith(('text/', 'application/json', 'application/xml'))
+            is_binary = not mime.startswith(self.BINARY_MIME_PREFIXES)
+            
+            if self.debug and is_binary:
+                logging.debug(f"Detected binary file: {file_path} (MIME: {mime})")
+                
+            return is_binary
+            
         except (OSError, PermissionError) as e:
             if self.debug:
                 logging.error(f"Error checking if file is binary: {e}")
             # Fall back to simple binary check
             return self._is_binary(file_path)
 
-    def should_ignore(self, file_path: Path) -> bool:
-        """Check if file should be ignored."""
-        # Convert to string for gitignore checking
-        path_str = str(file_path)
+    def should_include_file(self, file_path: Path) -> bool:
+        """Determine if a file should be included in analysis.
         
-        # Always ignore common patterns
-        if any(part.startswith('.') and part != '.gitignore' for part in Path(file_path).parts):
+        This unified method replaces both should_ignore and _should_include_file,
+        providing a single point of decision for file inclusion with clear rules.
+        
+        Args:
+            file_path: Path to the file, relative to the repository root
+            
+        Returns:
+            bool: True if the file should be included, False otherwise
+        """
+        # Step 1: Always include special files and directories
+        if file_path.name in self.SPECIAL_FILES or any(file_path.name.endswith(f) for f in self.SPECIAL_FILES):
+            if self.debug:
+                logging.debug(f"Including special file: {file_path}")
             return True
             
-        return self.gitignore(path_str)
+        if any(dir_name in file_path.parts for dir_name in self.SPECIAL_DIRS):
+            if self.debug:
+                logging.debug(f"Including file in special directory: {file_path}")
+            return True
+            
+        # Step 2: Check for files that should always be excluded
+        
+        # Skip hidden files/directories except .gitignore
+        if any(part.startswith('.') and part != '.gitignore' for part in file_path.parts):
+            if self.debug:
+                logging.debug(f"Excluding hidden file/directory: {file_path}")
+            return False
+            
+        # Skip files with blacklisted extensions
+        if file_path.suffix.lower() in self.blacklist_extensions:
+            if self.debug:
+                logging.debug(f"Excluding file with blacklisted extension: {file_path}")
+            return False
+            
+        # Skip files matching blacklisted path patterns
+        for pattern in self.blacklist_patterns:
+            if re.search(pattern, str(file_path)):
+                if self.debug:
+                    logging.debug(f"Excluding file matching blacklist pattern '{pattern}': {file_path}")
+                return False
+                
+        # Step 3: Check gitignore rules
+        path_str = str(file_path)
+        if self.gitignore(path_str):
+            if self.debug:
+                logging.debug(f"Excluding file due to gitignore rules: {file_path}")
+            return False
+            
+        # If we've passed all exclusion checks, include the file
+        return True
 
-    async def analyze_repository(self, show_progress: bool = False) -> Dict[str, FileInfo]:
-        """Analyze the full repository structure."""
+    def analyze_repository(self, show_progress: bool = False) -> Dict[str, FileInfo]:
+        """Analyze the full repository structure.
+        
+        This method scans the repository, analyzes each file, and builds a file manifest
+        with metadata about each file. It can optionally show a progress bar during analysis.
+        
+        Args:
+            show_progress: Whether to show a progress bar during analysis
+            
+        Returns:
+            Dict[str, FileInfo]: Dictionary mapping file paths to FileInfo objects
+            
+        Raises:
+            ValueError: If the repository path does not exist or is not a directory
+            RuntimeError: If no files are found in the repository
+            Exception: For other unexpected errors during analysis
+        """
         # Tell the cache manager about our repository path
         if hasattr(self.cache, 'repo_path'):
             self.cache.repo_path = self.repo_path
+        
+        # Validate repository path
+        if not self.repo_path.exists():
+            error_msg = f"Repository path does not exist: {self.repo_path}"
+            logging.error(error_msg)
+            raise ValueError(error_msg)
+            
+        if not self.repo_path.is_dir():
+            error_msg = f"Repository path is not a directory: {self.repo_path}"
+            logging.error(error_msg)
+            raise ValueError(error_msg)
         
         try:
             # Initialize blacklist from config
@@ -158,31 +275,16 @@ class CodebaseAnalyzer:
                 logging.debug(f"Blacklist extensions: {self.blacklist_extensions}")
                 logging.debug(f"Blacklist patterns: {self.blacklist_patterns}")
             
-            # Get all files in repository
-            all_files = []
-            for root, _, files in os.walk(self.repo_path):
-                root_path = Path(root)
-                for file in files:
-                    file_path = root_path / file
-                    rel_path = file_path.relative_to(self.repo_path)
-                    
-                    # Skip hidden files and directories except .github
-                    parts = rel_path.parts
-                    if any(part.startswith('.') for part in parts) and not any(part == '.github' for part in parts) and not str(rel_path).endswith('.gitignore'):
-                        continue
-                        
-                    # Use our custom inclusion method
-                    if self._should_include_file(rel_path):
-                        all_files.append(file_path)
+            # Get all files in repository using the _get_repository_files method
+            all_files = self._get_repository_files()
             
             # Debug output for file detection
             print(f"Found {len(all_files)} files to analyze")
             if len(all_files) == 0:
-                print(f"Repository path: {self.repo_path}")
-                print(f"Repository path exists: {self.repo_path.exists()}")
-                print(f"Repository path is directory: {self.repo_path.is_dir()}")
-                if self.repo_path.is_dir():
-                    print(f"Repository contents: {list(self.repo_path.iterdir())}")
+                error_msg = "No files found in repository"
+                logging.warning(error_msg)
+                logging.debug(f"Repository path: {self.repo_path}")
+                logging.debug(f"Repository contents: {list(self.repo_path.iterdir())}")
                 return {}
             
             # Test mode - limit to first 5 files
@@ -193,30 +295,42 @@ class CodebaseAnalyzer:
             
             # Show progress if requested
             if show_progress:
-                # Get or create the progress tracker instance
-                progress_tracker = ProgressTracker.get_instance(self.repo_path)
-                with progress_tracker.progress_bar(
-                    desc="Analyzing repository",
-                    total=len(all_files),
-                    unit="files"
-                ) as pbar:
-                    iterator = pbar
+                try:
+                    # Get or create the progress tracker instance
+                    progress_tracker = ProgressTracker.get_instance(self.repo_path)
+                    with progress_tracker.progress_bar(
+                        desc="Analyzing repository",
+                        total=len(all_files),
+                        unit="files"
+                    ) as pbar:
+                        iterator = pbar
+                except Exception as e:
+                    # Fall back to regular iteration if progress bar fails
+                    logging.warning(f"Failed to create progress bar: {e}")
+                    iterator = all_files
             else:
                 iterator = all_files
                 
             # Process each file
             for file_path in iterator:
-                rel_path = file_path.relative_to(self.repo_path)
-                
-                # Skip files that should be ignored
-                if self.should_ignore(rel_path):
-                    continue
+                try:
+                    rel_path = file_path.relative_to(self.repo_path)
                     
-                # Analyze file - make sure to await the async method
-                file_info = self._analyze_file(file_path)  # Changed from await to regular call
-                
-                # Add to manifest
-                self.file_manifest[str(rel_path)] = file_info
+                    # Skip files that should not be included
+                    if not self.should_include_file(rel_path):
+                        continue
+                        
+                    # Analyze file
+                    file_info = self._analyze_file(file_path)
+                    
+                    # Add to manifest
+                    self.file_manifest[str(rel_path)] = file_info
+                except Exception as e:
+                    # Log error but continue processing other files
+                    logging.error(f"Error processing file {file_path}: {e}")
+                    if self.debug:
+                        import traceback
+                        logging.debug(traceback.format_exc())
                 
             if self.debug:
                 logging.debug(f"Analyzed {len(self.file_manifest)} files")
@@ -227,57 +341,35 @@ class CodebaseAnalyzer:
             return self.file_manifest
             
         except Exception as e:
+            error_msg = f"Error analyzing repository: {e}"
+            logging.error(error_msg)
             if self.debug:
-                logging.error(f"Error analyzing repository: {e}")
-            print(f"Error analyzing repository: {e}")
+                import traceback
+                logging.debug(traceback.format_exc())
+            print(error_msg)
             return {}
 
     def _is_binary(self, file_path: Path) -> bool:
-        """Simple binary file detection"""
+        """Simple binary file detection by checking for null bytes.
+        
+        This is a fallback method used when python-magic fails.
+        
+        Args:
+            file_path: Path to the file to check
+            
+        Returns:
+            bool: True if the file contains null bytes (likely binary), False otherwise
+        """
         try:
             with open(file_path, 'rb') as f:
-                return b'\0' in f.read(1024)
+                return b'\0' in f.read(self.BINARY_CHECK_BYTES)
         except Exception as e:
             if self.debug:
                 self.logger.error(f"Error reading {file_path}: {e}")
+            # If we can't read the file, assume it's binary to be safe
             return True
 
-    def _should_include_file(self, rel_path: Path) -> bool:
-        """Determine if a file should be included in analysis."""
-        # Always include README.md and ARCHITECTURE.md for enhancement
-        if rel_path.name == "README.md" or rel_path.name == "ARCHITECTURE.md" or rel_path.name.endswith("CONTRIBUTING.md"):
-            return True
-        
-        # Special case for .github directory - always include it
-        if '.github' in rel_path.parts:
-            return True
-        
-        # Skip files that should be ignored
-        if self.should_ignore(rel_path):
-            if self.debug:
-                logging.debug(f"Ignoring file due to ignore patterns: {rel_path}")
-            return False
-        
-        # Skip files with blacklisted extensions
-        if rel_path.suffix.lower() in self.blacklist_extensions:
-            if self.debug:
-                logging.debug(f"Skipping file with blacklisted extension: {rel_path}")
-            return False
-        
-        # Skip files matching blacklisted path patterns
-        for pattern in self.blacklist_patterns:
-            if re.search(pattern, str(rel_path)):
-                if self.debug:
-                    logging.debug(f"Skipping file matching blacklist pattern '{pattern}': {rel_path}")
-                return False
-            
-        # Skip hidden files and directories (except .github which is handled above)
-        if any(part.startswith('.') for part in rel_path.parts) and not str(rel_path).endswith('.gitignore'):
-            if self.debug:
-                logging.debug(f"Skipping hidden file/directory: {rel_path}")
-            return False
-        
-        return True
+    # Method removed: _should_include_file has been merged with should_ignore into should_include_file
 
     def _get_repository_files(self) -> list[Path]:
         """Get all files in repository that should be analyzed."""
@@ -290,8 +382,8 @@ class CodebaseAnalyzer:
                 # Get path relative to repo root for filtering
                 rel_path = file_path.relative_to(self.repo_path)
                 
-                # Skip files that shouldn't be included
-                if not self._should_include_file(rel_path):
+                # Check if file should be included
+                if not self.should_include_file(rel_path):
                     if self.debug:
                         logging.debug(f"Excluding file due to inclusion rules: {rel_path}")
                     continue
@@ -310,7 +402,18 @@ class CodebaseAnalyzer:
             return [] 
 
     def _analyze_file(self, file_path: Path) -> FileInfo:
-        """Analyze a single file and return FileInfo object."""
+        """Analyze a single file and return FileInfo object.
+        
+        This method creates a FileInfo object for the given file, determines if it's binary,
+        reads its content if it's a text file, and extracts exports and dependencies
+        for source code files.
+        
+        Args:
+            file_path: Path to the file to analyze
+            
+        Returns:
+            FileInfo: Object containing metadata about the file
+        """
         try:
             # Create basic FileInfo object
             file_info = FileInfo(
@@ -332,8 +435,8 @@ class CodebaseAnalyzer:
                 file_info.is_binary = True
                 return file_info
             
-            # Extract exports (functions, classes, etc.)
-            if file_path.suffix in {'.py', '.js', '.ts', '.cs', '.java'}:
+            # Extract exports (functions, classes, etc.) for source code files
+            if file_path.suffix in self.SOURCE_CODE_EXTENSIONS:
                 file_info.exports = self._extract_exports(content)
             
             # Extract dependencies (imports, requires, etc.)
@@ -392,10 +495,20 @@ class CodebaseAnalyzer:
         
         return deps 
 
-    def _check_headers(self):
-        """Check header formatting and hierarchy."""
+    def check_markdown_headers(self, content: str) -> list[str]:
+        """Check markdown header formatting and hierarchy.
+        
+        This method analyzes markdown content to identify potential issues with headers,
+        such as excessive nesting, missing spaces, or improper capitalization.
+        
+        Args:
+            content: The markdown content to analyze
+            
+        Returns:
+            list[str]: A list of issues found in the headers
+        """
         issues = []
-        lines = self.content.split('\n')
+        lines = content.split('\n')
         
         for i, line in enumerate(lines):
             # Skip lines that aren't headers
@@ -418,10 +531,56 @@ class CodebaseAnalyzer:
             if header_text and not header_text[0].isupper():
                 issues.append(f"Header on line {i+1} should start with a capital letter")
             
-        return issues 
+        return issues
 
+    def analyze_python_files(self) -> Dict[Path, FileInfo]:
+        """Analyze Python files in the repository.
+        
+        This method filters the file manifest to include only Python files
+        and returns a dictionary mapping file paths to their FileInfo objects.
+        
+        Returns:
+            Dict[Path, FileInfo]: Dictionary of Python files and their metadata
+        """
+        python_files = {}
+        
+        for path_str, file_info in self.file_manifest.items():
+            path = Path(path_str)
+            if path.suffix == '.py':
+                python_files[path] = file_info
+                
+        if self.debug:
+            logging.debug(f"Found {len(python_files)} Python files")
+            
+        return python_files
+        
+    def build_dependency_graph(self) -> nx.DiGraph:
+        """Build and return the dependency graph of files in the repository.
+        
+        This method returns the graph that was built during repository analysis,
+        representing dependencies between files based on imports and requires.
+        
+        Returns:
+            nx.DiGraph: Directed graph of file dependencies
+        """
+        if self.debug:
+            logging.debug(f"Dependency graph has {len(self.graph.nodes())} nodes and {len(self.graph.edges())} edges")
+            
+        return self.graph
+    
     def derive_project_name(self, debug: bool = False) -> str:
-        """Derive project name from repository structure."""
+        """Derive project name from repository structure.
+        
+        This method attempts to determine the project name by examining various files
+        in the repository, such as package.json, setup.py, pom.xml, etc. It also looks
+        for patterns in directory structure and namespace declarations.
+        
+        Args:
+            debug: Whether to print debug information
+            
+        Returns:
+            str: The derived project name, or "Project" if no name could be determined
+        """
         try:
             # Dictionary of file patterns and their corresponding regex patterns
             name_patterns = {
@@ -496,6 +655,22 @@ class CodebaseAnalyzer:
                         except Exception as e:
                             if debug:
                                 print(f"Error parsing {path} for name: {e}")
+                                logging.error(f"Error parsing {path} for name: {e}")
+            
+            # Look for namespace declarations in C# files - FIXED: Access content directly
+            for path, info in self.file_manifest.items():
+                if path.endswith('.cs'):
+                    try:
+                        # Access content directly from the FileInfo object
+                        content = info.content if hasattr(info, 'content') else ""
+                        if content:
+                            namespace_match = re.search(r'namespace\s+([^\s.;{]+)', content)
+                            if namespace_match:
+                                return namespace_match.group(1)
+                    except Exception as e:
+                        if debug:
+                            print(f"Error parsing C# file for namespace: {e}")
+                            logging.error(f"Error parsing C# file for namespace: {e}")
             
             # If no name found in config files, try to derive from directory structure
             # Look for src/main/java/com/company/project pattern (common in Java)
@@ -505,19 +680,6 @@ class CodebaseAnalyzer:
                 if match:
                     # Use the last component as the project name
                     return match.group(3)
-            
-            # Look for namespace declarations in C# files
-            for path, info in self.file_manifest.items():
-                if path.endswith('.cs') and not info.get('is_binary', False):
-                    try:
-                        content = info.get('content', '')
-                        if content:
-                            namespace_match = re.search(r'namespace\s+([^\s.;{]+)', content)
-                            if namespace_match:
-                                return namespace_match.group(1)
-                    except Exception as e:
-                        if debug:
-                            print(f"Error parsing C# file for namespace: {e}")
             
             # Try to derive from directory name (use the repository root name)
             # This is a fallback if no other method works
@@ -532,4 +694,5 @@ class CodebaseAnalyzer:
         except Exception as e:
             if debug:
                 print(f"Error deriving project name: {e}")
-            return "Project" 
+            logging.error(f"Error deriving project name: {e}")
+            return "Project"

@@ -18,6 +18,7 @@ For detailed technical documentation and architecture information, see:
 - [Badges Guide](docs/BADGES.md) - Documentation for the badge generation system
 - [README Generator](docs/README_GENERATOR.md) - Documentation for the README generation system
 - [Mermaid Generator](docs/MERMAID_GENERATOR.md) - Documentation for the Mermaid diagram generation system
+- [CodebaseAnalyzer](docs/CODEBASE_ANALYZER.md) - Documentation for the codebase analysis system
 
 ## Features
 
@@ -420,6 +421,7 @@ Contributions are welcome! Please read our [Contributing Guide](docs/CONTRIBUTIN
 - [Contributing Guide](docs/CONTRIBUTING.md)
 - [README Generator](docs/README_GENERATOR.md)
 - [Mermaid Generator](docs/MERMAID_GENERATOR.md)
+- [CodebaseAnalyzer](docs/CODEBASE_ANALYZER.md)
 
 ## License
 
