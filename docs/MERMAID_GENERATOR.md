@@ -147,30 +147,31 @@ flowchart TB
 
 ## Integration with Architecture Generator
 
-The MermaidGenerator is used by the architecture generator to create visual representations of the codebase structure. The architecture generator configures the MermaidGenerator with appropriate settings for each diagram type:
+The MermaidGenerator was previously used directly by the architecture generator to create visual representations of the codebase structure. In the current implementation, the LLM is responsible for generating the architecture content, including any Mermaid diagrams.
+
+The architecture generator now focuses on:
+1. Coordinating with the LLM to generate content
+2. Formatting and validating the generated content
+3. Providing fallback mechanisms when LLM generation fails
+
+For more details on the architecture generation process, see the [Architecture Generator Documentation](ARCHITECTURE_GENERATOR.md).
+
+### Historical Reference (Previous Implementation)
+
+For reference, this is how the MermaidGenerator was previously used:
 
 ```python
 # Create MermaidGenerator with appropriate configuration
 mermaid = MermaidGenerator(
     analyzer.graph,
-    direction="TB",  # Top-to-bottom for better package visualization
+    direction=DEFAULT_DIAGRAM_DIRECTION,
     sanitize_nodes=True
 )
 
-# Add package-level overview
-content += "## Package Structure\n\n"
-content += "The following diagram shows the high-level package organization:\n\n"
-content += mermaid.generate_package_diagram(custom_direction="TB")
-
-# Add module dependencies
-content += "## Module Dependencies\n\n"
-content += "This flowchart shows the dependencies between modules:\n\n"
-content += mermaid.generate_dependency_flowchart(custom_direction="LR")
-
-# Add detailed class diagram
-content += "## Class Structure\n\n"
-content += "The following class diagram shows the detailed structure including exports:\n\n"
-content += mermaid.generate_class_diagram()
+# Generate diagrams
+package_diagram = mermaid.generate_package_diagram(custom_direction=DEFAULT_DIAGRAM_DIRECTION)
+dependency_flowchart = mermaid.generate_dependency_flowchart(custom_direction=DEPENDENCY_DIAGRAM_DIRECTION)
+class_diagram = mermaid.generate_class_diagram()
 ```
 
 ## Extending

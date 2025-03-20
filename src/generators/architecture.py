@@ -1,130 +1,23 @@
-from ..analyzers.codebase import CodebaseAnalyzer
-from .mermaid import MermaidGenerator
-from ..utils.markdown_validator import MarkdownValidator
-from pathlib import Path
-from ..clients.base_llm import BaseLLMClient
+# Standard library imports
 import logging
 import re
-import json
-from typing import Dict, Optional
 import traceback
-from ..generators.readme import _format_anchor_link
+from pathlib import Path
+from typing import Dict
 
-def generate_architecture(analyzer: CodebaseAnalyzer) -> str:
-    """Generate Architecture.md content with Mermaid diagrams."""
-    content = "# Project Architecture\n\n"
-    
-    if not analyzer.graph.edges():
-        content += "No dependency relationships detected.\n"
-        return content
-    
-    # Create MermaidGenerator with appropriate configuration
-    mermaid = MermaidGenerator(
-        analyzer.graph,
-        direction="TB",  # Top-to-bottom for better package visualization
-        sanitize_nodes=True
-    )
-    
-    # Add package-level overview
-    content += "## Package Structure\n\n"
-    content += "The following diagram shows the high-level package organization:\n\n"
-    content += mermaid.generate_package_diagram(custom_direction="TB")
-    
-    # Add module dependencies
-    content += "## Module Dependencies\n\n"
-    content += "This flowchart shows the dependencies between modules:\n\n"
-    content += mermaid.generate_dependency_flowchart(custom_direction="LR")
-    
-    # Add detailed class diagram
-    content += "## Class Structure\n\n"
-    content += "The following class diagram shows the detailed structure including exports:\n\n"
-    content += mermaid.generate_class_diagram()
-    
-    # Add textual description
-    content += "## Dependency Details\n\n"
-    content += "### Direct Dependencies\n\n"
-    for src, dst in analyzer.graph.edges():
-        content += f"- **{src}** → **{dst}**\n"
-    
-    # Validate and fix markdown
-    validator = MarkdownValidator(content)
-    issues = validator.validate()
-    
-    # Log validation issues
-    if issues:
-        print("\nMarkdown validation issues in Architecture.md:")
-        for issue in issues:
-            print(f"Line {issue.line_number}: {issue.message} ({issue.severity})")
-            if issue.suggestion:
-                print(f"  Suggestion: {issue.suggestion}")
-    
-    # Fix common issues
-    content = validator.fix_common_issues()
-    
-    if "_This ARCHITECTURE" not in content:
-        content += "\n\n---\n_This ARCHITECTURE documentation was generated using AI analysis and may contain inaccuracies. Please verify critical information._"
-    
-    return content
+# Local imports
+from ..analyzers.codebase import CodebaseAnalyzer
+from ..clients.base_llm import BaseLLMClient
+from ..utils.markdown_validator import MarkdownValidator
+from .mermaid import MermaidGenerator
+from .readme import _format_anchor_link
 
-def _build_file_table(files: dict) -> str:
-    """Generate nested markdown structure of files with summaries."""
-    # Build directory tree
-    tree = {'__files__': []}
-    for path, info in files.items():
-        parts = Path(path).parts
-        current = tree
-        for part in parts[:-1]:
-            if part not in current:
-                current[part] = {'__files__': []}
-            current = current[part]
-        current['__files__'].append((parts[-1], info))
-
-    def _build_section(name: str, content: dict, level: int = 0) -> list[str]:
-        lines = []
-        indent = '\t' * level
-        
-        # Add directory header
-        if name != '__root__':
-            lines.append(f"{indent}<details>")
-            lines.append(f"{indent}\t<summary><b><code>{name}/</code> - {_get_directory_purpose(name)}</b></summary>")
-            lines.append(f"{indent}\t<blockquote>")
-        else:
-            # Add root section header for top-level files
-            lines.append(f"{indent}<details>")
-            lines.append(f"{indent}\t<summary><b>Root Directory</b> - top-level project files</summary>")
-            lines.append(f"{indent}\t<blockquote>")
-        
-        # Add files table if there are files
-        if content['__files__']:
-            lines.append(f"{indent}\t<table>")
-            for filename, info in sorted(content['__files__']):
-                summary = info.summary.replace('\n', '<br>') if info.summary else ""
-                # Fix path joining logic
-                if name == '__root__':
-                    file_path = f"/{filename}"
-                else:
-                    file_path = f"/{name}/{filename}"
-                lines.append(f"{indent}\t<tr>")
-                lines.append(f"{indent}\t\t<td><b><a href='{file_path}'>{filename}</a></b></td>")
-                lines.append(f"{indent}\t\t<td>{summary}</td>")
-                lines.append(f"{indent}\t</tr>")
-            lines.append(f"{indent}\t</table>")
-        
-        # Process subdirectories
-        subdirs = {k: v for k, v in content.items() if k != '__files__'}
-        for subdir, subcontent in sorted(subdirs.items()):
-            lines.extend(_build_section(subdir, subcontent, level + 1))
-        
-        if name != '__root__':
-            lines.append(f"{indent}\t</blockquote>")
-            lines.append(f"{indent}</details>")
-        
-        return lines
-
-    root = {'__root__': {'__files__': []}}
-    root['__root__'].update(tree)
-    
-    return "\n".join(_build_section('__root__', root['__root__']))
+# Constants for configuration
+DEFAULT_DIAGRAM_DIRECTION = "TB"  # Top-to-bottom for better package visualization
+DEPENDENCY_DIAGRAM_DIRECTION = "LR"  # Left-to-right for dependency flowcharts
+MAX_TREE_LINES = 100  # Maximum number of tree lines to display
+MAX_COMPONENT_NAMES = 5  # Maximum number of component names to extract
+MIN_CONTENT_LENGTH = 100  # Minimum length for valid architecture content
 
 async def generate_architecture(
     repo_path: Path,
@@ -132,10 +25,24 @@ async def generate_architecture(
     llm_client: BaseLLMClient,
     config: dict
 ) -> str:
-    """Generate architecture documentation for the repository."""
+    """
+    Generate architecture documentation for the repository.
+    
+    This function uses an LLM to generate comprehensive architecture documentation
+    with proper formatting, table of contents, and sections. If the LLM fails or
+    returns invalid content, it falls back to a basic architecture document.
+    
+    Args:
+        repo_path: Path to the repository
+        file_manifest: Dictionary of files in the repository
+        llm_client: LLM client for generating content
+        config: Configuration dictionary
+        
+    Returns:
+        Formatted architecture documentation as a string
+    """
     try:
         # Create a temporary analyzer to use its method
-        from src.analyzers.codebase import CodebaseAnalyzer
         temp_analyzer = CodebaseAnalyzer(repo_path, config)
         temp_analyzer.file_manifest = file_manifest
         project_name = temp_analyzer.derive_project_name(config.get('debug', False))
@@ -162,7 +69,7 @@ async def generate_architecture(
             return create_fallback_architecture(project_name, file_manifest)
         
         # If we got a valid response, format it properly
-        if architecture_content and len(architecture_content) > 100:
+        if architecture_content and len(architecture_content) > MIN_CONTENT_LENGTH:
             # Log successful generation
             logging.info("Successfully received architecture content from LLM")
             
@@ -171,7 +78,7 @@ async def generate_architecture(
             for line in architecture_content.split('\n'):
                 if line.startswith('## '):
                     section_name = line[3:].strip()
-                    section_anchor = section_name.lower().replace(' ', '-').replace('/', '').replace('(', '').replace(')', '').replace('.', '')
+                    section_anchor = _format_anchor_link(section_name)
                     sections.append(f"- [{section_name}](#{section_anchor})")
             
             # If no sections were found, add a default one
@@ -190,10 +97,10 @@ async def generate_architecture(
             else:
                 # Replace any existing title with our properly formatted one
                 architecture_content = re.sub(
-                    r'^#\s+.*$', 
-                    f"# Project Architecture Analysis: {project_name}", 
-                    architecture_content, 
-                    count=1, 
+                    r'^#\s+.*$',
+                    f"# Project Architecture Analysis: {project_name}",
+                    architecture_content,
+                    count=1,
                     flags=re.MULTILINE
                 )
                 
@@ -222,8 +129,23 @@ async def generate_architecture(
         logging.error(f"Error generating architecture documentation: {e}")
         return create_fallback_architecture("Project", file_manifest)
 
+# This section intentionally left blank - removing unused function
+
 def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
-    """Create a fallback architecture document with basic project structure."""
+    """
+    Create a fallback architecture document with basic project structure.
+    
+    This function is used when the LLM fails to generate architecture documentation
+    or returns invalid content. It creates a basic document with project structure,
+    technology stack, and other information that can be derived from the file manifest.
+    
+    Args:
+        project_name: Name of the project
+        file_manifest: Dictionary of files in the repository
+        
+    Returns:
+        Basic architecture documentation as a string
+    """
     # Create a basic structure analysis
     structure_sections = analyze_basic_structure(file_manifest)
     
@@ -275,8 +197,8 @@ def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
         return result
     
     tree_lines = format_tree(dirs)
-    content += '\n'.join(tree_lines[:100])  # Limit to first 100 lines
-    if len(tree_lines) > 100:
+    content += '\n'.join(tree_lines[:MAX_TREE_LINES])  # Limit to configured number of lines
+    if len(tree_lines) > MAX_TREE_LINES:
         content += "\n... (truncated)"
     content += "\n```\n\n"
     
@@ -289,7 +211,18 @@ def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
     return content
 
 def analyze_basic_structure(file_manifest: dict) -> Dict[str, str]:
-    """Perform basic structure analysis without LLM."""
+    """
+    Perform basic structure analysis without LLM.
+    
+    This function analyzes the file manifest to determine the technology stack
+    and project patterns based on file extensions and directory names.
+    
+    Args:
+        file_manifest: Dictionary of files in the repository
+        
+    Returns:
+        Dictionary of section names to section content
+    """
     sections = {}
     
     # Count file types
@@ -336,87 +269,4 @@ def analyze_basic_structure(file_manifest: dict) -> Dict[str, str]:
     
     return sections
 
-def _generate_fallback_components(file_manifest: dict) -> str:
-    """Generate a basic component list from file types."""
-    components = {}
-    
-    # Group files by directory/type
-    for path, info in file_manifest.items():
-        parts = path.split('/')
-        if len(parts) > 1:
-            component = parts[0]  # Use top-level directory as component
-        else:
-            # Use file extension as component type
-            ext = Path(path).suffix.lstrip('.') or "misc"
-            component = f"{ext} files"
-            
-        if component not in components:
-            components[component] = []
-        components[component].append(path)
-    
-    # Format as markdown
-    result = ""
-    for component, files in components.items():
-        result += f"### {component.capitalize()}\n\n"
-        result += "Contains the following files:\n"
-        for file in sorted(files)[:5]:  # Limit to 5 files per component
-            result += f"- `{file}`\n"
-        if len(files) > 5:
-            result += f"- *(and {len(files)-5} more files)*\n"
-        result += "\n"
-    
-    return result
-
-def _get_directory_purpose(directory: str) -> str:
-    """Return a general description based on common directory names."""
-    purposes = {
-        "src": "source code and main implementation",
-        "tests": "test files and test utilities",
-        "docs": "documentation files",
-        "scripts": "automation and utility scripts",
-        "config": "configuration files",
-        "assets": "static assets and resources",
-        ".github": "GitHub-specific configuration and workflows",
-    }
-    
-    dir_name = Path(directory).name
-    return purposes.get(dir_name, "project components")
-
-async def generate_architecture_documentation(llm_client, file_manifest, analyzer):
-    """Generate architecture documentation for the project."""
-    try:
-        print("\nGenerating architecture documentation...")
-        
-        # Generate architecture content
-        content = await llm_client.generate_architecture_content(file_manifest, analyzer)
-        
-        # Ensure the content has proper markdown formatting
-        if not content.startswith("# "):
-            content = "# Architecture Documentation\n\n" + content
-        
-        # Check if content contains a mermaid diagram, if not, try to add one
-        if "```mermaid" not in content:
-            # Get key components to generate a basic diagram
-            key_components = llm_client._identify_key_components(file_manifest)
-            component_names = re.findall(r'- ([^(]+)', key_components)[:5]  # Extract up to 5 component names
-            
-            # Create a simple mermaid diagram
-            mermaid_diagram = "```mermaid\nflowchart TD\n"
-            for i, component in enumerate(component_names):
-                component = component.strip()
-                mermaid_diagram += f"    C{i}[\"{component}\"] "
-                if i > 0:
-                    mermaid_diagram += f"--> C{i-1} "
-                mermaid_diagram += "\n"
-            mermaid_diagram += "```\n\n"
-            
-            # Insert the diagram after the project structure section
-            structure_section_end = content.find("```", content.find("Project Structure"))
-            if structure_section_end > 0:
-                structure_section_end = content.find("\n", structure_section_end)
-                content = content[:structure_section_end+2] + "\n## Component Diagram\n\n" + mermaid_diagram + content[structure_section_end+2:]
-        
-        return content
-    except Exception as e:
-        logging.error(f"Error generating architecture documentation: {e}", exc_info=True)
-        return "# Architecture Documentation\n\nUnable to generate architecture documentation." 
+# End of file

@@ -132,6 +132,9 @@ class DocumentationGenerator:
     def generate_architecture_doc(self) -> str:
         """Generate architecture documentation.
         
+        Note: This method is deprecated. Use the standalone generate_architecture function
+        from src.generators.architecture instead.
+        
         Returns:
             Generated architecture documentation
         """
@@ -464,6 +467,56 @@ The badges are generated using the shields.io service with the following format:
 
 For more detailed information, see the [Badges Guide](BADGES.md).
 
+## Architecture Generator
+
+```python
+async def generate_architecture(
+    repo_path: Path,
+    file_manifest: dict,
+    llm_client: BaseLLMClient,
+    config: dict
+) -> str:
+    """
+    Generate architecture documentation for the repository.
+    
+    This function uses an LLM to generate comprehensive architecture documentation
+    with proper formatting, table of contents, and sections. If the LLM fails or
+    returns invalid content, it falls back to a basic architecture document.
+    
+    Args:
+        repo_path: Path to the repository
+        file_manifest: Dictionary of files in the repository
+        llm_client: LLM client for generating content
+        config: Configuration dictionary
+        
+    Returns:
+        Formatted architecture documentation as a string
+    """
+```
+
+The architecture generator also provides supporting functions:
+
+```python
+def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
+    """
+    Create a fallback architecture document with basic project structure.
+    
+    This function is used when the LLM fails to generate architecture documentation
+    or returns invalid content. It creates a basic document with project structure,
+    technology stack, and other information that can be derived from the file manifest.
+    """
+
+def analyze_basic_structure(file_manifest: dict) -> Dict[str, str]:
+    """
+    Perform basic structure analysis without LLM.
+    
+    This function analyzes the file manifest to determine the technology stack
+    and project patterns based on file extensions and directory names.
+    """
+```
+
+For more details, see the [Architecture Generator Documentation](ARCHITECTURE_GENERATOR.md).
+
 ## Usage Examples
 
 ### Basic Usage
@@ -477,9 +530,23 @@ cache = CacheManager(repo_path, config)
 # Analyze repository
 file_manifest = await analyzer.analyze_repository()
 
-# Generate documentation
-generator = DocumentationGenerator(file_manifest, config)
-readme_content = generator.generate_readme()
+# Generate README documentation
+from src.generators.readme import generate_readme
+readme_content = await generate_readme(
+    repo_path=repo_path,
+    llm_client=ollama,
+    file_manifest=file_manifest,
+    config=config
+)
+
+# Generate architecture documentation
+from src.generators.architecture import generate_architecture
+arch_content = await generate_architecture(
+    repo_path=repo_path,
+    file_manifest=file_manifest,
+    llm_client=ollama,
+    config=config
+)
 
 # Validate documentation
 markdown_validator = MarkdownValidator(readme_content)
