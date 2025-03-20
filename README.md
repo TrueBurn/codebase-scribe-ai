@@ -20,6 +20,7 @@ For detailed technical documentation and architecture information, see:
 - [Mermaid Generator](docs/MERMAID_GENERATOR.md) - Documentation for the Mermaid diagram generation system
 - [CodebaseAnalyzer](docs/CODEBASE_ANALYZER.md) - Documentation for the codebase analysis system
 - [LLM Clients](docs/LLM_CLIENTS.md) - Documentation for the LLM client system
+- [Message Manager](docs/MESSAGE_MANAGER.md) - Documentation for the message formatting system
 
 ## Features
 
@@ -426,6 +427,7 @@ Contributions are welcome! Please read our [Contributing Guide](docs/CONTRIBUTIN
 - [Mermaid Generator](docs/MERMAID_GENERATOR.md)
 - [CodebaseAnalyzer](docs/CODEBASE_ANALYZER.md)
 - [LLM Clients](docs/LLM_CLIENTS.md)
+- [Message Manager](docs/MESSAGE_MANAGER.md)
 
 ## License
 

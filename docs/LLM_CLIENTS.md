@@ -8,6 +8,7 @@ This document provides detailed information about the LLM (Large Language Model)
 - [OllamaClient](#ollamaclient)
 - [BedrockClient](#bedrockclient)
 - [LLMClientFactory](#llmclientfactory)
+- [MessageManager](#messagemanager)
 - [LLM Utilities](#llm-utilities)
 - [Usage Examples](#usage-examples)
 - [Extending with New Providers](#extending-with-new-providers)
@@ -484,9 +485,24 @@ class LLMClientFactory:
             logging.error(error_msg)
             raise ClientInitializationError(error_msg) from e
 ```
+## MessageManager
+
+The `MessageManager` class is a utility class that standardizes message formatting for different LLM providers. It provides a centralized place to define system and user prompts for various documentation generation tasks, ensuring consistency across the application.
+
+### Key Features
+
+- Version tracking for API compatibility
+- Input validation for all parameters
+- Comprehensive documentation with examples
+- Type hints for better IDE support
+- Multi-stage token reduction strategy
+- Final class design (not meant to be subclassed)
+
+For detailed information about the `MessageManager` class, see [MESSAGE_MANAGER.md](MESSAGE_MANAGER.md).
 
 ## LLM Utilities
 
+The `llm_utils.py` module provides shared utility functions used by all LLM clients. These utilities handle common tasks like formatting project structure, analyzing dependencies, and processing LLM responses.
 The `llm_utils.py` module provides shared utility functions used by all LLM clients. These utilities handle common tasks like formatting project structure, analyzing dependencies, and processing LLM responses.
 
 ### Key Features
