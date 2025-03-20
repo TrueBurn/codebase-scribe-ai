@@ -365,8 +365,7 @@ src/
 ├── clients/            # External service clients
 │   └── ollama.py       # Ollama API integration
 ├── generators/         # Content generation
-│   ├── readme.py       # README generation
-│   └── templates.py    # Template handling
+│   └── readme.py       # README generation
 ├── models/            # Data models
 │   └── file_info.py   # File information
 └── utils/             # Utility functions
