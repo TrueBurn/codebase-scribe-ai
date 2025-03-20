@@ -98,29 +98,125 @@ The `OllamaClient` is a concrete implementation of `BaseLLMClient` that interact
 - Automatic token management
 - Retry logic for resilience
 - Progress tracking
+- Comprehensive error handling
+- Token limit management
 
 ### Implementation Details
 
 ```python
+# Constants for default configuration values
+DEFAULT_BASE_URL = "http://localhost:11434"
+DEFAULT_MAX_TOKENS = 4096
+DEFAULT_RETRIES = 3
+DEFAULT_RETRY_DELAY = 1.0
+DEFAULT_TIMEOUT = 30
+DEFAULT_TEMPERATURE = 0
+
 class OllamaClient(BaseLLMClient):
-    """Handles all interactions with local Ollama instance."""
+    """
+    Client for interacting with local Ollama LLM instances.
+    
+    This class handles all interactions with a local Ollama instance, including
+    model selection, token management, and generating various types of documentation.
+    
+    Attributes:
+        base_url (str): URL of the Ollama API endpoint
+        max_tokens (int): Maximum number of tokens for responses
+        retries (int): Number of retries for API calls
+        retry_delay (float): Delay between retries in seconds
+        timeout (int): Timeout for API calls in seconds
+        temperature (float): Temperature for LLM generation (0-1)
+        client (AsyncClient): Ollama API client
+        prompt_template (PromptTemplate): Template manager for prompts
+        debug (bool): Whether to print debug information
+        available_models (list): List of available models
+        selected_model (str): Currently selected model
+        token_counter (TokenCounter): Counter for token usage
+        project_structure (str): String representation of project structure
+    """
     
     def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize the Ollama client.
+        
+        Args:
+            config: Configuration dictionary with Ollama-specific settings
+        """
         super().__init__()
         
         # Get Ollama config with defaults
         ollama_config = config.get('ollama', {})
-        self.base_url = ollama_config.get('base_url', 'http://localhost:11434')
-        self.max_tokens = ollama_config.get('max_tokens', 4096)
-        self.retries = ollama_config.get('retries', 3)
-        self.retry_delay = ollama_config.get('retry_delay', 1.0)
-        self.timeout = ollama_config.get('timeout', 30)
-        self.temperature = ollama_config.get('temperature', 0)
+        self.base_url = ollama_config.get('base_url', DEFAULT_BASE_URL)
+        self.max_tokens = ollama_config.get('max_tokens', DEFAULT_MAX_TOKENS)
+        self.retries = ollama_config.get('retries', DEFAULT_RETRIES)
+        self.retry_delay = ollama_config.get('retry_delay', DEFAULT_RETRY_DELAY)
+        self.timeout = ollama_config.get('timeout', DEFAULT_TIMEOUT)
+        self.temperature = ollama_config.get('temperature', DEFAULT_TEMPERATURE)
         self.client = AsyncClient(host=self.base_url)
         self.prompt_template = PromptTemplate(config.get('template_path'))
         self.debug = config.get('debug', False)
         self.available_models = []
         self.selected_model = None
+```
+
+### Error Handling
+
+The `OllamaClient` includes robust error handling:
+
+```python
+class OllamaClientError(Exception):
+    """Custom exception for Ollama client errors."""
+    pass
+
+# In methods:
+try:
+    # API call
+except httpx.HTTPError as e:
+    if self.debug:
+        print(f"HTTP error: {traceback.format_exc()}")
+    logging.error(f"HTTP error: {str(e)}")
+    # Handle error appropriately
+except Exception as e:
+    if self.debug:
+        print(f"Error: {traceback.format_exc()}")
+    logging.error(f"Error: {str(e)}")
+    # Handle error appropriately
+```
+
+### Retry Mechanism
+
+The client uses a retry decorator for resilience:
+
+```python
+@async_retry(
+    retries=DEFAULT_RETRIES,
+    delay=DEFAULT_RETRY_DELAY,
+    backoff=2.0,
+    max_delay=30.0,
+    jitter=True,
+    exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
+)
+async def generate_summary(self, prompt: str) -> Optional[str]:
+    # Method implementation
+```
+
+### Token Management
+
+The client includes token limit handling:
+
+```python
+# Check token count
+will_exceed, token_count = self.token_counter.will_exceed_limit(prompt, self.selected_model)
+
+if will_exceed:
+    if self.debug:
+        print(f"Content exceeds token limit ({token_count} tokens). Truncating...")
+    prompt = self.token_counter.truncate_text(prompt)
+    
+    # Re-check after truncation
+    _, new_token_count = self.token_counter.will_exceed_limit(prompt, self.selected_model)
+    if self.debug:
+        print(f"Truncated to {new_token_count} tokens")
 ```
 
 ## BedrockClient

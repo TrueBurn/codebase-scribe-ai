@@ -1,66 +1,105 @@
-from ollama import AsyncClient
-from typing import Dict, Any, Optional
-import httpx
-from ..utils.prompt_manager import PromptTemplate
-from ..utils.retry import async_retry
-from pathlib import Path
-import yaml
-import json
-import re
-from collections import defaultdict
-import traceback
-from tqdm import tqdm
+# Standard library imports
 import asyncio
-from ..utils.progress import ProgressTracker
 import logging
+import traceback
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Union
+
+# Third-party imports
+import httpx
+from ollama import AsyncClient
 from pydantic import BaseModel
-from typing import List, Optional
-import time
+
+# Local application imports
 from .base_llm import BaseLLMClient
 from .message_manager import MessageManager
 from .llm_utils import (
     format_project_structure,
     find_common_dependencies,
     identify_key_components,
-    get_default_order,
     fix_markdown_issues,
     prepare_file_order_data,
     process_file_order_response
 )
 from ..analyzers.codebase import CodebaseAnalyzer
+from ..utils.prompt_manager import PromptTemplate
+from ..utils.progress import ProgressTracker
+from ..utils.retry import async_retry
 from ..utils.tokens import TokenCounter
+
+# Constants for default configuration values
+DEFAULT_BASE_URL = "http://localhost:11434"
+DEFAULT_MAX_TOKENS = 4096
+DEFAULT_RETRIES = 3
+DEFAULT_RETRY_DELAY = 1.0
+DEFAULT_TIMEOUT = 30
+DEFAULT_TEMPERATURE = 0
 
 class OllamaClientError(Exception):
     """Custom exception for Ollama client errors."""
     pass
 
 class OllamaClient(BaseLLMClient):
-    """Handles all interactions with local Ollama instance."""
+    """
+    Client for interacting with local Ollama LLM instances.
+    
+    This class handles all interactions with a local Ollama instance, including
+    model selection, token management, and generating various types of documentation.
+    
+    Attributes:
+        base_url (str): URL of the Ollama API endpoint
+        max_tokens (int): Maximum number of tokens for responses
+        retries (int): Number of retries for API calls
+        retry_delay (float): Delay between retries in seconds
+        timeout (int): Timeout for API calls in seconds
+        temperature (float): Temperature for LLM generation (0-1)
+        client (AsyncClient): Ollama API client
+        prompt_template (PromptTemplate): Template manager for prompts
+        debug (bool): Whether to print debug information
+        available_models (list): List of available models
+        selected_model (str): Currently selected model
+        token_counter (TokenCounter): Counter for token usage
+        project_structure (str): String representation of project structure
+    """
     
     def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize the Ollama client.
+        
+        Args:
+            config: Configuration dictionary with Ollama-specific settings
+        """
         # Call parent class constructor
         super().__init__()
         
         # Get Ollama config with defaults
         ollama_config = config.get('ollama', {})
-        self.base_url = ollama_config.get('base_url', 'http://localhost:11434')
-        self.max_tokens = ollama_config.get('max_tokens', 4096)
-        self.retries = ollama_config.get('retries', 3)
-        self.retry_delay = ollama_config.get('retry_delay', 1.0)
-        self.timeout = ollama_config.get('timeout', 30)
-        self.temperature = ollama_config.get('temperature', 0)
+        self.base_url = ollama_config.get('base_url', DEFAULT_BASE_URL)
+        self.max_tokens = ollama_config.get('max_tokens', DEFAULT_MAX_TOKENS)
+        self.retries = ollama_config.get('retries', DEFAULT_RETRIES)
+        self.retry_delay = ollama_config.get('retry_delay', DEFAULT_RETRY_DELAY)
+        self.timeout = ollama_config.get('timeout', DEFAULT_TIMEOUT)
+        self.temperature = ollama_config.get('temperature', DEFAULT_TEMPERATURE)
         self.client = AsyncClient(host=self.base_url)
         self.prompt_template = PromptTemplate(config.get('template_path'))
         self.debug = config.get('debug', False)
         self.available_models = []
         self.selected_model = None
     
-    async def initialize(self):
-        """Async initialization"""
+    async def initialize(self) -> None:
+        """
+        Initialize the client asynchronously.
+        
+        This method fetches available models from the Ollama instance,
+        prompts the user to select a model, and initializes the token counter.
+        
+        Raises:
+            OllamaClientError: If no models are available or initialization fails
+        """
         try:
             self.available_models = await self._get_available_models()
             if not self.available_models:
-                raise OllamaClientError("No models available in Ollama instance")
+                raise OllamaClientError("No models available in Ollama instance. Please ensure Ollama is running and has models installed.")
             
             self.selected_model = await self._select_model_interactive()
             
@@ -73,36 +112,71 @@ class OllamaClient(BaseLLMClient):
             if self.debug:
                 print(f"Selected model: {self.selected_model}")
             
+        except httpx.HTTPError as e:
+            if self.debug:
+                print(f"HTTP error during initialization: {traceback.format_exc()}")
+            raise OllamaClientError(f"Failed to connect to Ollama API: {str(e)}")
         except Exception as e:
             if self.debug:
                 print(f"Initialization error: {traceback.format_exc()}")
             raise OllamaClientError(f"Failed to initialize client: {str(e)}")
 
-    def init_token_counter(self):
-        """Initialize the token counter for this client."""
+    def init_token_counter(self) -> None:
+        """
+        Initialize the token counter for this client.
+        
+        This method sets up the TokenCounter instance with the
+        selected model name and debug configuration.
+        """
         self.token_counter = TokenCounter(model_name=self.selected_model, debug=self.debug)
 
-    async def _get_available_models(self) -> list:
-        """Get list of available models from Ollama."""
+    async def _get_available_models(self) -> List[str]:
+        """
+        Get list of available models from Ollama.
+        
+        Returns:
+            List of model names available in the Ollama instance
+            
+        Raises:
+            No exceptions are raised, but returns an empty list on error
+        """
         try:
             response = await self.client.list()
             models = response.models
             return [model.model for model in models]
+        except httpx.HTTPError as e:
+            if self.debug:
+                print(f"HTTP error fetching models: {str(e)}")
+            logging.error(f"HTTP error fetching models from Ollama: {str(e)}")
+            return []
         except Exception as e:
             if self.debug:
                 print(f"Error fetching models: {str(e)}")
+            logging.error(f"Error fetching models from Ollama: {str(e)}")
             return []
 
     @async_retry(
-        retries=3,
-        delay=1.0,
+        retries=DEFAULT_RETRIES,
+        delay=DEFAULT_RETRY_DELAY,
         backoff=2.0,
         max_delay=30.0,
         jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
     async def generate_summary(self, prompt: str) -> Optional[str]:
-        """Generate a summary for a file's content."""
+        """
+        Generate a summary for a file's content.
+        
+        This method processes the content of a file and produces a concise
+        summary describing its purpose and functionality. It handles token
+        limit checking and truncation if necessary.
+        
+        Args:
+            prompt: The file content to summarize
+            
+        Returns:
+            Optional[str]: Generated summary or None if generation fails
+        """
         try:
             # Check token count
             will_exceed, token_count = self.token_counter.will_exceed_limit(prompt, self.selected_model)
@@ -127,8 +201,12 @@ class OllamaClient(BaseLLMClient):
                 content = response['message'].get('content', '')
                 return self._fix_markdown_issues(content)
             
+            logging.warning("Empty or invalid response from Ollama API")
             return None
             
+        except httpx.HTTPError as e:
+            logging.error(f"HTTP error generating summary: {e}")
+            return None
         except Exception as e:
             logging.error(f"Error generating summary: {e}")
             return None
@@ -136,19 +214,44 @@ class OllamaClient(BaseLLMClient):
     # _update_progress method removed - now using ProgressTracker.update_progress_async
 
     def _fix_markdown_issues(self, content: str) -> str:
-        """Fix common markdown formatting issues before returning content."""
+        """
+        Fix common markdown formatting issues before returning content.
+        
+        This method delegates to the imported fix_markdown_issues utility function
+        to ensure consistent markdown formatting across all generated content.
+        
+        Args:
+            content: The markdown content to fix
+            
+        Returns:
+            The fixed markdown content with proper formatting
+        """
         return fix_markdown_issues(content)
 
     @async_retry(
-        retries=3,
-        delay=1.0,
+        retries=DEFAULT_RETRIES,
+        delay=DEFAULT_RETRY_DELAY,
         backoff=2.0,
         max_delay=30.0,
         jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
-    async def generate_project_overview(self, file_manifest: dict) -> str:
-        """Generate project overview based strictly on observed evidence."""
+    async def generate_project_overview(self, file_manifest: Dict[str, Any]) -> str:
+        """
+        Generate project overview based strictly on observed evidence.
+        
+        This method analyzes the project structure and files to create a
+        comprehensive overview of the project's purpose and components.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            str: Generated project overview in markdown format
+            
+        Raises:
+            Exception: If an error occurs during generation
+        """
         # Get progress tracker instance
         progress_tracker = ProgressTracker.get_instance(Path("."))
         with progress_tracker.progress_bar(
@@ -165,7 +268,7 @@ class OllamaClient(BaseLLMClient):
                 # Get key components with the improved method
                 key_components = self._identify_key_components(file_manifest)
                 
-                # Your existing template code
+                # Create template content with project information
                 template_content = self.prompt_template.get_template('project_overview', {
                     'project_name': self._derive_project_name(file_manifest),
                     'file_count': len(file_manifest),
@@ -196,22 +299,19 @@ class OllamaClient(BaseLLMClient):
                     print(f"\nError generating overview: {str(e)}")
                 raise
 
-    def _chunk_content(self, content: str, chunk_size: int = 1000) -> str:
+    def _format_project_structure(self, file_manifest: Dict[str, Any]) -> str:
         """
-        Chunk large content to fit within context window.
-        Returns a representative sample if content is too large.
-        """
-        if len(content) <= chunk_size:
-            return content
+        Build a tree-like project structure string from file manifest.
+        
+        This method delegates to the imported format_project_structure utility function
+        to create a formatted string representation of the project structure.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
             
-        # Take the first and last portions of the content
-        half_chunk = chunk_size // 2
-        start = content[:half_chunk]
-        end = content[-half_chunk:]
-        return f"{start}\n\n... [content truncated for length] ...\n\n{end}"
-
-    def _format_project_structure(self, file_manifest: dict) -> str:
-        """Build a tree-like project structure string."""
+        Returns:
+            A formatted string representing the project structure
+        """
         return format_project_structure(file_manifest, self.debug)
 
     def set_project_structure(self, structure: str) -> None:
@@ -236,15 +336,26 @@ class OllamaClient(BaseLLMClient):
         self.project_structure = self._format_project_structure(file_manifest)
 
     @async_retry(
-        retries=3,
-        delay=1.0,
+        retries=DEFAULT_RETRIES,
+        delay=DEFAULT_RETRY_DELAY,
         backoff=2.0,
         max_delay=30.0,
         jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
-    async def generate_component_relationships(self, file_manifest: dict) -> str:
-        """Generate description of how components interact."""
+    async def generate_component_relationships(self, file_manifest: Dict[str, Any]) -> str:
+        """
+        Generate description of how components interact.
+        
+        This method analyzes the relationships between different components
+        in the project and describes their interactions based on the file manifest.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            str: Generated component relationship description in markdown format
+        """
         
         # Get detected technologies first
         tech_report = self._find_common_dependencies(file_manifest)
@@ -262,16 +373,49 @@ class OllamaClient(BaseLLMClient):
         # Fix any markdown issues
         return self._fix_markdown_issues(content)
 
-    def _identify_key_components(self, file_manifest: dict) -> str:
-        """Identify key components from file manifest."""
+    def _identify_key_components(self, file_manifest: Dict[str, Any]) -> str:
+        """
+        Identify key components from file manifest.
+        
+        This method analyzes the file manifest to identify the main components
+        of the project based on directory structure and file patterns.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            str: A formatted string listing key components
+        """
         return identify_key_components(file_manifest, self.debug)
 
-    def _find_common_dependencies(self, file_manifest: dict) -> str:
-        """Extract common dependencies from file manifest."""
+    def _find_common_dependencies(self, file_manifest: Dict[str, Any]) -> str:
+        """
+        Extract common dependencies from file manifest.
+        
+        This method analyzes the file manifest to identify common dependencies
+        used in the project, such as libraries, frameworks, and packages.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            str: A formatted string listing detected dependencies
+        """
         return find_common_dependencies(file_manifest, self.debug)
 
     async def _select_model_interactive(self) -> str:
-        """Interactive model selection."""
+        """
+        Interactive model selection.
+        
+        This method prompts the user to select a model from the list of
+        available models in the Ollama instance.
+        
+        Returns:
+            str: The name of the selected model
+            
+        Raises:
+            No exceptions are raised, but will retry until a valid selection is made
+        """
         while True:
             print("Available Ollama models:")
             for i, model in enumerate(self.available_models, 1):
@@ -294,8 +438,20 @@ class OllamaClient(BaseLLMClient):
         file_order: List[str]
         reasoning: Optional[str] = None
 
-    async def get_file_order(self, project_files: dict) -> list[str]:
-        """Ask LLM to determine optimal file processing order."""
+    async def get_file_order(self, project_files: Dict[str, Any]) -> List[str]:
+        """
+        Ask LLM to determine optimal file processing order.
+        
+        This method analyzes dependencies between files to determine the
+        most efficient order for processing them, using the LLM to identify
+        relationships and dependencies.
+        
+        Args:
+            project_files: Dictionary mapping file paths to file information
+            
+        Returns:
+            List[str]: List of file paths in optimal processing order
+        """
         try:
             print("\nStarting file order optimization...")
             logging.info("Preparing file order optimization request")
@@ -327,15 +483,27 @@ class OllamaClient(BaseLLMClient):
             return list(project_files.keys())
 
     @async_retry(
-        retries=3,
-        delay=1.0,
+        retries=DEFAULT_RETRIES,
+        delay=DEFAULT_RETRY_DELAY,
         backoff=2.0,
         max_delay=30.0,
         jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
-    async def generate_architecture_content(self, file_manifest: dict, analyzer) -> str:
-        """Generate architecture documentation content with flow diagrams."""
+    async def generate_architecture_content(self, file_manifest: Dict[str, Any], analyzer: Any) -> str:
+        """
+        Generate architecture documentation content with flow diagrams.
+        
+        This method creates comprehensive documentation about the project's
+        architecture, including component diagrams and design patterns.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            analyzer: CodebaseAnalyzer instance for additional analysis
+            
+        Returns:
+            str: Generated architecture documentation in markdown format
+        """
         # Get progress tracker instance
         progress_tracker = ProgressTracker.get_instance(Path("."))
         with progress_tracker.progress_bar(
@@ -419,15 +587,26 @@ class OllamaClient(BaseLLMClient):
                 return "Error generating architecture documentation."
 
     @async_retry(
-        retries=3,
-        delay=1.0,
+        retries=DEFAULT_RETRIES,
+        delay=DEFAULT_RETRY_DELAY,
         backoff=2.0,
         max_delay=30.0,
         jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
-    async def generate_usage_guide(self, file_manifest: dict) -> str:
-        """Generate usage guide based on project structure."""
+    async def generate_usage_guide(self, file_manifest: Dict[str, Any]) -> str:
+        """
+        Generate usage guide based on project structure.
+        
+        This method creates documentation explaining how to use the project,
+        including installation, configuration, and common operations.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            str: Generated usage guide in markdown format
+        """
         try:
             response = await self.client.chat(
                 model=self.selected_model,
@@ -449,15 +628,26 @@ class OllamaClient(BaseLLMClient):
             return "### Usage\n\nUsage instructions could not be generated."
 
     @async_retry(
-        retries=3,
-        delay=1.0,
+        retries=DEFAULT_RETRIES,
+        delay=DEFAULT_RETRY_DELAY,
         backoff=2.0,
         max_delay=30.0,
         jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
-    async def generate_contributing_guide(self, file_manifest: dict) -> str:
-        """Generate contributing guide based on project structure."""
+    async def generate_contributing_guide(self, file_manifest: Dict[str, Any]) -> str:
+        """
+        Generate contributing guide based on project structure.
+        
+        This method creates documentation explaining how to contribute to the project,
+        including coding standards, pull request process, and development setup.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            str: Generated contributing guide in markdown format
+        """
         try:
             response = await self.client.chat(
                 model=self.selected_model,
@@ -478,15 +668,26 @@ class OllamaClient(BaseLLMClient):
             return "### Contributing\n\nContribution guidelines could not be generated."
 
     @async_retry(
-        retries=3,
-        delay=1.0,
+        retries=DEFAULT_RETRIES,
+        delay=DEFAULT_RETRY_DELAY,
         backoff=2.0,
         max_delay=30.0,
         jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
-    async def generate_license_info(self, file_manifest: dict) -> str:
-        """Generate license information based on project structure."""
+    async def generate_license_info(self, file_manifest: Dict[str, Any]) -> str:
+        """
+        Generate license information based on project structure.
+        
+        This method analyzes the project to determine its license and creates
+        appropriate license information documentation.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            str: Generated license information in markdown format
+        """
         try:
             response = await self.client.chat(
                 model=self.selected_model,
@@ -507,15 +708,28 @@ class OllamaClient(BaseLLMClient):
             return "This project's license information could not be determined."
 
     @async_retry(
-        retries=3,
-        delay=1.0,
+        retries=DEFAULT_RETRIES,
+        delay=DEFAULT_RETRY_DELAY,
         backoff=2.0,
         max_delay=30.0,
         jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
-    async def enhance_documentation(self, existing_content: str, file_manifest: dict, doc_type: str) -> str:
-        """Enhance existing documentation with new insights."""
+    async def enhance_documentation(self, existing_content: str, file_manifest: Dict[str, Any], doc_type: str) -> str:
+        """
+        Enhance existing documentation with new insights.
+        
+        This method takes existing documentation and improves it based on
+        analysis of the codebase and file manifest.
+        
+        Args:
+            existing_content: The existing documentation content
+            file_manifest: Dictionary mapping file paths to file information
+            doc_type: Type of documentation being enhanced (e.g., "README", "ARCHITECTURE")
+            
+        Returns:
+            str: Enhanced documentation content in markdown format
+        """
         try:
             # Get detected technologies
             tech_report = self._find_common_dependencies(file_manifest)
@@ -545,11 +759,20 @@ class OllamaClient(BaseLLMClient):
                 print(f"\nError enhancing documentation: {str(e)}")
             return existing_content  # Return original content on error 
 
-    def _derive_project_name(self, file_manifest: dict) -> str:
-        """Derive project name from repository structure."""
-        # Create a temporary analyzer instance to use its method
-        from ..analyzers.codebase import CodebaseAnalyzer
-        from pathlib import Path
+    def _derive_project_name(self, file_manifest: Dict[str, Any]) -> str:
+        """
+        Derive project name from repository structure.
+        
+        This method attempts to determine a project name based on the repository
+        structure, looking at common files like package.json, setup.py, etc.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            A string representing the derived project name
+        """
+        # Use the existing CodebaseAnalyzer import to avoid circular imports
         temp_analyzer = CodebaseAnalyzer(Path("."), {"debug": self.debug})
         temp_analyzer.file_manifest = file_manifest
         return temp_analyzer.derive_project_name(self.debug)
