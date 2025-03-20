@@ -15,6 +15,6 @@ def repo_path():
 @pytest.mark.asyncio
 async def test_basic_analysis(config, repo_path):
     analyzer = CodebaseAnalyzer(repo_path, config)
-    manifest = await analyzer.analyze_repository()
+    manifest = analyzer.analyze_repository()  # Removed await since this is not an async method
     assert manifest is not None
-    assert len(manifest) > 0 
+    assert len(manifest) > 0

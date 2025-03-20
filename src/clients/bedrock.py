@@ -628,6 +628,12 @@ class BedrockClient(BaseLLMClient):
             # Get key components
             key_components = self._identify_key_components(file_manifest)
             
+            # Ensure project structure is set
+            if not self.project_structure or len(self.project_structure) < 10:
+                self.set_project_structure_from_manifest(file_manifest)
+                if self.debug:
+                    print(f"Project structure generated ({len(self.project_structure)} chars)")
+            
             # Create context for template
             context = {
                 "doc_type": doc_type,
