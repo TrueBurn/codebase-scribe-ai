@@ -149,10 +149,26 @@ class OllamaClient(BaseLLMClient):
         # ...
 
 class BedrockClient(BaseLLMClient):
+    """Handles all interactions with AWS Bedrock."""
+    
     def __init__(self, config: Dict[str, Any]):
+        """Initialize the BedrockClient with the provided configuration."""
         super().__init__()
-        self.region = os.getenv('AWS_REGION') or config.get('bedrock', {}).get('region', 'us-east-1')
-        self.model_id = os.getenv('AWS_BEDROCK_MODEL_ID') or config.get('bedrock', {}).get('model_id')
+        
+        # Constants for default configuration values
+        DEFAULT_REGION = 'us-east-1'
+        DEFAULT_MODEL_ID = 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
+        DEFAULT_MAX_TOKENS = 4096
+        DEFAULT_TIMEOUT = 120
+        
+        # Get Bedrock config with defaults
+        bedrock_config = config.get('bedrock', {})
+        
+        # Use environment variables if available, otherwise use config
+        self.region = os.getenv('AWS_REGION') or bedrock_config.get('region', DEFAULT_REGION)
+        self.model_id = os.getenv('AWS_BEDROCK_MODEL_ID') or bedrock_config.get('model_id', DEFAULT_MODEL_ID)
+        self.max_tokens = bedrock_config.get('max_tokens', DEFAULT_MAX_TOKENS)
+        self.timeout = bedrock_config.get('timeout', DEFAULT_TIMEOUT)
         # ...
 ```
 

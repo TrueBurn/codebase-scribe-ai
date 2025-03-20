@@ -1,19 +1,21 @@
-from typing import Dict, Any, Optional, List
-import boto3
+# Standard library imports
+import asyncio
 import json
 import logging
-import asyncio
-from tqdm import tqdm
-import time
 import os
+import traceback
+from pathlib import Path
+from typing import Dict, Any, Optional, List, Union
+
+# Third-party imports
+import boto3
+import botocore
+from botocore.config import Config as BotocoreConfig
 from dotenv import load_dotenv
-from ..utils.prompt_manager import PromptTemplate
-from ..utils.retry import async_retry
-from pydantic import BaseModel
+
+# Local imports
 from .base_llm import BaseLLMClient
 from .message_manager import MessageManager
-from ..analyzers.codebase import CodebaseAnalyzer
-from ..utils.progress import ProgressTracker
 from .llm_utils import (
     format_project_structure,
     find_common_dependencies,
@@ -23,12 +25,21 @@ from .llm_utils import (
     prepare_file_order_data,
     process_file_order_response
 )
-import re
-from pathlib import Path
-import traceback
-import botocore
-from botocore.config import Config as BotocoreConfig
+from ..analyzers.codebase import CodebaseAnalyzer
+from ..utils.prompt_manager import PromptTemplate
+from ..utils.progress import ProgressTracker
+from ..utils.retry import async_retry
 from ..utils.tokens import TokenCounter
+
+# Constants
+DEFAULT_REGION = 'us-east-1'
+DEFAULT_MODEL_ID = 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
+DEFAULT_MAX_TOKENS = 4096
+DEFAULT_TIMEOUT = 120
+DEFAULT_RETRIES = 3
+DEFAULT_RETRY_DELAY = 1.0
+DEFAULT_TEMPERATURE = 0
+BEDROCK_API_VERSION = "bedrock-2023-05-31"
 
 class BedrockClientError(Exception):
     """Custom exception for Bedrock client errors."""
@@ -37,6 +48,15 @@ class BedrockClient(BaseLLMClient):
     """Handles all interactions with AWS Bedrock."""
     
     def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize the BedrockClient with the provided configuration.
+        
+        Args:
+            config: Dictionary containing configuration parameters
+                - bedrock: Dictionary with Bedrock-specific configuration
+                - debug: Boolean to enable debug output
+                - template_path: Path to prompt templates
+        """
         # Call parent class constructor
         super().__init__()
         
@@ -47,25 +67,21 @@ class BedrockClient(BaseLLMClient):
         bedrock_config = config.get('bedrock', {})
         
         # Use environment variables if available, otherwise use config
-        self.region = os.getenv('AWS_REGION') or bedrock_config.get('region', 'us-east-1')
+        self.region = os.getenv('AWS_REGION') or bedrock_config.get('region', DEFAULT_REGION)
         
         # Use environment variable for model_id if available, otherwise use config
-        # Default to the correct Claude 3 Sonnet model ID
         self.model_id = os.getenv('AWS_BEDROCK_MODEL_ID') or bedrock_config.get(
-            'model_id', 'us.anthropic.claude-3-5-sonnet-20241022-v2:0'
+            'model_id', DEFAULT_MODEL_ID
         )
         
         # Print model ID for debugging
         if config.get('debug', False):
             print(f"Using Bedrock model ID: {self.model_id}")
         
-        self.max_tokens = bedrock_config.get('max_tokens', 4096)
-        self.retries = bedrock_config.get('retries', 3)
-        self.retry_delay = bedrock_config.get('retry_delay', 1.0)
-        
-        # Increase default timeout from 30 to 120 seconds
-        self.timeout = bedrock_config.get('timeout', 120)
-        
+        self.max_tokens = bedrock_config.get('max_tokens', DEFAULT_MAX_TOKENS)
+        self.retries = bedrock_config.get('retries', DEFAULT_RETRIES)
+        self.retry_delay = bedrock_config.get('retry_delay', DEFAULT_RETRY_DELAY)
+        self.timeout = bedrock_config.get('timeout', DEFAULT_TIMEOUT)
         self.debug = config.get('debug', False)
         
         # Add concurrency support
@@ -86,9 +102,22 @@ class BedrockClient(BaseLLMClient):
             if self.debug:
                 print("SSL verification disabled for tiktoken")
         
-        # Initialize Bedrock client with credentials from environment and longer timeout
+        # Initialize Bedrock client
+        self.client = self._initialize_bedrock_client()
+        self.prompt_template = PromptTemplate(config.get('template_path'))
+        
+        # Add temperature setting
+        self.temperature = bedrock_config.get('temperature', DEFAULT_TEMPERATURE)
+        
+    def _initialize_bedrock_client(self) -> boto3.client:
+        """
+        Initialize the AWS Bedrock client with proper configuration.
+        
+        Returns:
+            boto3.client: Configured Bedrock client
+        """
         # AWS SDK will automatically use AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from env
-        self.client = boto3.client(
+        return boto3.client(
             'bedrock-runtime',
             region_name=self.region,
             verify=self.verify_ssl,
@@ -98,13 +127,43 @@ class BedrockClient(BaseLLMClient):
                 retries={'max_attempts': self.retries}
             )
         )
-        self.prompt_template = PromptTemplate(config.get('template_path'))
+    
+    async def validate_aws_credentials(self) -> bool:
+        """
+        Validate that AWS credentials are properly configured.
         
-        # Add temperature setting
-        self.temperature = bedrock_config.get('temperature', 0)  # Default to 0 for deterministic output
+        Returns:
+            bool: True if credentials are valid, False otherwise
+        """
+        try:
+            # Try a simple operation to validate credentials
+            await asyncio.to_thread(
+                self.client.list_foundation_models
+            )
+            logging.info("AWS credentials validated successfully")
+            return True
+        except botocore.exceptions.ClientError as e:
+            error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            if error_code in ('UnrecognizedClientException', 'AccessDeniedException'):
+                logging.error(f"AWS credential validation failed: {error_code}")
+                if self.debug:
+                    print(f"AWS credential error: {str(e)}")
+                return False
+            # For other errors, credentials might be valid but other issues exist
+            return True
+        except Exception as e:
+            logging.warning(f"AWS credential validation error: {str(e)}")
+            return False
+    
+    async def initialize(self) -> None:
+        """
+        Perform async initialization tasks.
         
-    async def initialize(self):
-        """Async initialization"""
+        Initializes token counter, validates credentials, and sets up project structure.
+        
+        Raises:
+            BedrockClientError: If initialization fails
+        """
         try:
             # Initialize token counter
             self.init_token_counter()
@@ -116,6 +175,10 @@ class BedrockClient(BaseLLMClient):
             if self.debug:
                 print(f"Selected model: {self.model_id}")
                 print(f"AWS credentials: {'Found' if os.getenv('AWS_ACCESS_KEY_ID') else 'Not found'} in environment")
+                
+                # Validate credentials
+                is_valid = await self.validate_aws_credentials()
+                print(f"AWS credentials valid: {is_valid}")
             
             # Initialize project structure if not already done
             if self.project_structure is None:
@@ -126,9 +189,29 @@ class BedrockClient(BaseLLMClient):
                 print(f"Initialization error: {str(e)}")
             raise BedrockClientError(f"Failed to initialize client: {str(e)}")
     
-    def init_token_counter(self):
+    def init_token_counter(self) -> None:
         """Initialize the token counter for this client."""
         self.token_counter = TokenCounter(model_name=self.model_id, debug=self.debug)
+    
+    async def close(self) -> None:
+        """
+        Clean up resources when the client is no longer needed.
+        
+        This method should be called when you're done using the client to ensure
+        proper cleanup of resources.
+        """
+        # Cancel any pending tasks
+        tasks = [task for task in asyncio.all_tasks()
+                if task is not asyncio.current_task() and not task.done()]
+        
+        for task in tasks:
+            task.cancel()
+            
+        # Wait for tasks to be cancelled
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+            
+        logging.info("BedrockClient resources cleaned up")
     
     @async_retry(
         retries=3,
@@ -214,38 +297,14 @@ class BedrockClient(BaseLLMClient):
                 system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
                 user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
                 
-                # Combine for Claude
-                combined_content = f"{system_content}\n\n{user_content}"
-                
-                # Create proper Bedrock format
-                bedrock_messages = [
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": combined_content}]
-                    }
-                ]
-                
                 # Update progress
                 pbar.update(20)
                 
-                # Invoke model
-                response = await asyncio.to_thread(
-                    self.client.invoke_model,
-                    body=json.dumps({
-                        "anthropic_version": "bedrock-2023-05-31",
-                        "max_tokens": self.max_tokens,
-                        "messages": bedrock_messages,
-                        "temperature": self.temperature
-                    }),
-                    modelId=self.model_id
-                )
+                # Use the helper method to create and invoke the request
+                content = await self._create_and_invoke_bedrock_request(system_content, user_content)
                 
                 # Update progress
                 pbar.update(70)
-                
-                # Process response
-                response_body = json.loads(response.get('body').read())
-                content = response_body['content'][0]['text']
                 
                 # Update progress
                 pbar.update(10)
@@ -305,11 +364,58 @@ class BedrockClient(BaseLLMClient):
         """
         self.project_structure = self._format_project_structure(file_manifest)
     
-    def _build_project_structure(self, file_manifest: dict) -> str:
-        """Build a tree-like project structure string."""
-        # Implementation similar to OllamaClient
-        # For brevity, just returning a placeholder
-        return "Project structure"
+    async def _create_and_invoke_bedrock_request(
+        self,
+        system_content: str,
+        user_content: str,
+        max_tokens: Optional[int] = None
+    ) -> str:
+        """
+        Helper method to create and invoke a Bedrock request with the given content.
+        
+        Args:
+            system_content: System message content
+            user_content: User message content
+            max_tokens: Maximum tokens to generate (uses default if None)
+            
+        Returns:
+            str: The generated content with markdown issues fixed
+            
+        Raises:
+            Various exceptions from the underlying API call
+        """
+        # Combine for Claude
+        combined_content = f"{system_content}\n\n{user_content}"
+        
+        # Create proper Bedrock format
+        bedrock_messages = [
+            {
+                "role": "user",
+                "content": [{"type": "text", "text": combined_content}]
+            }
+        ]
+        
+        # Use provided max_tokens or default
+        tokens_to_generate = max_tokens or self.max_tokens
+        
+        # Invoke model
+        response = await asyncio.to_thread(
+            self.client.invoke_model,
+            body=json.dumps({
+                "anthropic_version": BEDROCK_API_VERSION,
+                "max_tokens": tokens_to_generate,
+                "messages": bedrock_messages,
+                "temperature": self.temperature
+            }),
+            modelId=self.model_id
+        )
+        
+        # Process response
+        response_body = json.loads(response.get('body').read())
+        content = response_body['content'][0]['text']
+        
+        # Fix any markdown issues
+        return self._fix_markdown_issues(content)
     
     @async_retry(
         retries=3,
@@ -387,33 +493,10 @@ class BedrockClient(BaseLLMClient):
                     system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
                     user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
                     
-                    # Combine for Claude
-                    combined_content = f"{system_content}\n\n{user_content}"
-                    
-                    # Create proper Bedrock format
-                    bedrock_messages = [
-                        {
-                            "role": "user",
-                            "content": [{"type": "text", "text": combined_content}]
-                        }
-                    ]
-                    
-                    response = await asyncio.to_thread(
-                        self.client.invoke_model,
-                        body=json.dumps({
-                            "anthropic_version": "bedrock-2023-05-31",
-                            "max_tokens": self.max_tokens,
-                            "messages": bedrock_messages,
-                            "temperature": self.temperature
-                        }),
-                        modelId=self.model_id
-                    )
+                    # Use the helper method to create and invoke the request
+                    content = await self._create_and_invoke_bedrock_request(system_content, user_content)
                     
                     update_task.cancel()
-                    
-                    # Process response
-                    response_body = json.loads(response.get('body').read())
-                    content = response_body['content'][0]['text']
                     
                     # Ensure the project structure is included in the output
                     if "```" not in content[:500]:
@@ -584,7 +667,15 @@ class BedrockClient(BaseLLMClient):
         exceptions=(ConnectionError, TimeoutError),
     )
     async def generate_usage_guide(self, file_manifest: dict) -> str:
-        """Generate usage guide based on project structure."""
+        """
+        Generate usage guide based on project structure.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            str: Generated usage guide content in markdown format
+        """
         async with self.semaphore:
             try:
                 # Get messages from MessageManager
@@ -597,39 +688,13 @@ class BedrockClient(BaseLLMClient):
                 system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
                 user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
                 
-                # Combine for Claude
-                combined_content = f"{system_content}\n\n{user_content}"
-                
-                # Create proper Bedrock format
-                bedrock_messages = [
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": combined_content}]
-                    }
-                ]
-                
-                response = await asyncio.to_thread(
-                    self.client.invoke_model,
-                    body=json.dumps({
-                        "anthropic_version": "bedrock-2023-05-31",
-                        "max_tokens": self.max_tokens,
-                        "messages": bedrock_messages,
-                        "temperature": self.temperature
-                    }),
-                    modelId=self.model_id
-                )
-                
-                # Process response
-                response_body = json.loads(response.get('body').read())
-                content = response_body['content'][0]['text']
-                
-                # Fix any remaining markdown issues
-                fixed_content = self._fix_markdown_issues(content)
-                return fixed_content
+                # Use the helper method to create and invoke the request
+                return await self._create_and_invoke_bedrock_request(system_content, user_content)
                 
             except Exception as e:
                 if self.debug:
                     print(f"\nError generating usage guide: {str(e)}")
+                logging.error(f"Error generating usage guide: {str(e)}")
                 return "### Usage\n\nUsage instructions could not be generated."
 
     @async_retry(
@@ -641,7 +706,15 @@ class BedrockClient(BaseLLMClient):
         exceptions=(ConnectionError, TimeoutError),
     )
     async def generate_contributing_guide(self, file_manifest: dict) -> str:
-        """Generate contributing guide based on project structure."""
+        """
+        Generate contributing guide based on project structure.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            str: Generated contributing guide content in markdown format
+        """
         async with self.semaphore:
             try:
                 # Get messages from MessageManager
@@ -653,39 +726,13 @@ class BedrockClient(BaseLLMClient):
                 system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
                 user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
                 
-                # Combine for Claude
-                combined_content = f"{system_content}\n\n{user_content}"
-                
-                # Create proper Bedrock format
-                bedrock_messages = [
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": combined_content}]
-                    }
-                ]
-                
-                response = await asyncio.to_thread(
-                    self.client.invoke_model,
-                    body=json.dumps({
-                        "anthropic_version": "bedrock-2023-05-31",
-                        "max_tokens": self.max_tokens,
-                        "messages": bedrock_messages,
-                        "temperature": self.temperature
-                    }),
-                    modelId=self.model_id
-                )
-                
-                # Process response
-                response_body = json.loads(response.get('body').read())
-                content = response_body['content'][0]['text']
-                
-                # Fix any remaining markdown issues
-                fixed_content = self._fix_markdown_issues(content)
-                return fixed_content
+                # Use the helper method to create and invoke the request
+                return await self._create_and_invoke_bedrock_request(system_content, user_content)
                 
             except Exception as e:
                 if self.debug:
                     print(f"\nError generating contributing guide: {str(e)}")
+                logging.error(f"Error generating contributing guide: {str(e)}")
                 return "### Contributing\n\nContributing guidelines could not be generated."
 
     @async_retry(
@@ -697,7 +744,15 @@ class BedrockClient(BaseLLMClient):
         exceptions=(ConnectionError, TimeoutError),
     )
     async def generate_license_info(self, file_manifest: dict) -> str:
-        """Generate license information based on project structure."""
+        """
+        Generate license information based on project structure.
+        
+        Args:
+            file_manifest: Dictionary mapping file paths to file information
+            
+        Returns:
+            str: Generated license information content in markdown format
+        """
         async with self.semaphore:
             try:
                 # Get messages from MessageManager
@@ -709,39 +764,13 @@ class BedrockClient(BaseLLMClient):
                 system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
                 user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
                 
-                # Combine for Claude
-                combined_content = f"{system_content}\n\n{user_content}"
-                
-                # Create proper Bedrock format
-                bedrock_messages = [
-                    {
-                        "role": "user",
-                        "content": [{"type": "text", "text": combined_content}]
-                    }
-                ]
-                
-                response = await asyncio.to_thread(
-                    self.client.invoke_model,
-                    body=json.dumps({
-                        "anthropic_version": "bedrock-2023-05-31",
-                        "max_tokens": self.max_tokens,
-                        "messages": bedrock_messages,
-                        "temperature": self.temperature
-                    }),
-                    modelId=self.model_id
-                )
-                
-                # Process response
-                response_body = json.loads(response.get('body').read())
-                content = response_body['content'][0]['text']
-                
-                # Fix any remaining markdown issues
-                fixed_content = self._fix_markdown_issues(content)
-                return fixed_content
+                # Use the helper method to create and invoke the request
+                return await self._create_and_invoke_bedrock_request(system_content, user_content)
                 
             except Exception as e:
                 if self.debug:
                     print(f"\nError generating license info: {str(e)}")
+                logging.error(f"Error generating license info: {str(e)}")
                 return "This project's license information could not be determined."
 
     def _get_default_order(self, core_files: dict, resource_files: dict) -> list[str]:
@@ -749,7 +778,15 @@ class BedrockClient(BaseLLMClient):
         return get_default_order(core_files, resource_files)
 
     async def get_file_order(self, project_files: dict) -> list[str]:
-        """Ask LLM to determine optimal file processing order."""
+        """
+        Ask LLM to determine optimal file processing order.
+        
+        Args:
+            project_files: Dictionary mapping file paths to file information
+            
+        Returns:
+            list[str]: Ordered list of file paths
+        """
         try:
             print("\nStarting file order optimization...")
             logging.info("Preparing file order optimization request")
@@ -767,32 +804,8 @@ class BedrockClient(BaseLLMClient):
             system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
             user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
             
-            # Combine for Claude
-            combined_content = f"{system_content}\n\n{user_content}"
-            
-            # Create proper Bedrock format
-            bedrock_messages = [
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": combined_content}]
-                }
-            ]
-            
-            # Convert to async operation
-            response = await asyncio.to_thread(
-                self.client.invoke_model,
-                body=json.dumps({
-                    "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": self.max_tokens,
-                    "messages": bedrock_messages,
-                    "temperature": self.temperature
-                }),
-                modelId=self.model_id
-            )
-            
-            # Process response
-            response_body = json.loads(response.get('body').read())
-            content = response_body['content'][0]['text']
+            # Use the helper method to create and invoke the request
+            content = await self._create_and_invoke_bedrock_request(system_content, user_content)
             
             # Use common utility to process response
             return process_file_order_response(content, core_files, resource_files, self.debug)
@@ -863,7 +876,7 @@ class BedrockClient(BaseLLMClient):
             
             # Create request body
             request_body = json.dumps({
-                "anthropic_version": "bedrock-2023-05-31",
+                "anthropic_version": BEDROCK_API_VERSION,
                 "max_tokens": tokens_to_generate,
                 "messages": bedrock_messages,
                 "temperature": self.temperature

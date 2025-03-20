@@ -230,14 +230,37 @@ The `BedrockClient` is a concrete implementation of `BaseLLMClient` that interac
 - SSL verification configuration
 - Concurrency control
 - Automatic token management
+- AWS credentials validation
+- Resource cleanup
+- Efficient request handling with helper methods
+- Comprehensive error handling and retry logic
 
 ### Implementation Details
 
 ```python
+# Constants for default configuration values
+DEFAULT_REGION = 'us-east-1'
+DEFAULT_MODEL_ID = 'us.anthropic.claude-3-7-sonnet-20250219-v1:0'
+DEFAULT_MAX_TOKENS = 4096
+DEFAULT_TIMEOUT = 120
+DEFAULT_RETRIES = 3
+DEFAULT_RETRY_DELAY = 1.0
+DEFAULT_TEMPERATURE = 0
+BEDROCK_API_VERSION = "bedrock-2023-05-31"
+
 class BedrockClient(BaseLLMClient):
     """Handles all interactions with AWS Bedrock."""
     
     def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize the BedrockClient with the provided configuration.
+        
+        Args:
+            config: Dictionary containing configuration parameters
+                - bedrock: Dictionary with Bedrock-specific configuration
+                - debug: Boolean to enable debug output
+                - template_path: Path to prompt templates
+        """
         super().__init__()
         
         # Load environment variables from .env file
@@ -247,10 +270,116 @@ class BedrockClient(BaseLLMClient):
         bedrock_config = config.get('bedrock', {})
         
         # Use environment variables if available, otherwise use config
-        self.region = os.getenv('AWS_REGION') or bedrock_config.get('region', 'us-east-1')
+        self.region = os.getenv('AWS_REGION') or bedrock_config.get('region', DEFAULT_REGION)
         self.model_id = os.getenv('AWS_BEDROCK_MODEL_ID') or bedrock_config.get(
-            'model_id', 'us.anthropic.claude-3-5-sonnet-20241022-v2:0'
+            'model_id', DEFAULT_MODEL_ID
         )
+        
+        self.max_tokens = bedrock_config.get('max_tokens', DEFAULT_MAX_TOKENS)
+        self.timeout = bedrock_config.get('timeout', DEFAULT_TIMEOUT)
+        self.retries = bedrock_config.get('retries', DEFAULT_RETRIES)
+        self.retry_delay = bedrock_config.get('retry_delay', DEFAULT_RETRY_DELAY)
+        self.temperature = bedrock_config.get('temperature', DEFAULT_TEMPERATURE)
+        
+        # Initialize Bedrock client
+        self.client = self._initialize_bedrock_client()
+```
+
+### Helper Methods
+
+The `BedrockClient` includes several helper methods to improve code organization and reduce duplication:
+
+```python
+def _initialize_bedrock_client(self) -> boto3.client:
+    """
+    Initialize the AWS Bedrock client with proper configuration.
+    
+    Returns:
+        boto3.client: Configured Bedrock client
+    """
+    # AWS SDK will automatically use AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY from env
+    return boto3.client(
+        'bedrock-runtime',
+        region_name=self.region,
+        verify=self.verify_ssl,
+        config=BotocoreConfig(
+            connect_timeout=self.timeout,
+            read_timeout=self.timeout,
+            retries={'max_attempts': self.retries}
+        )
+    )
+
+async def validate_aws_credentials(self) -> bool:
+    """
+    Validate that AWS credentials are properly configured.
+    
+    Returns:
+        bool: True if credentials are valid, False otherwise
+    """
+    # Implementation details...
+
+async def _create_and_invoke_bedrock_request(
+    self,
+    system_content: str,
+    user_content: str,
+    max_tokens: Optional[int] = None
+) -> str:
+    """
+    Helper method to create and invoke a Bedrock request with the given content.
+    
+    Args:
+        system_content: System message content
+        user_content: User message content
+        max_tokens: Maximum tokens to generate (uses default if None)
+        
+    Returns:
+        str: The generated content with markdown issues fixed
+    """
+    # Implementation details...
+```
+
+### Resource Management
+
+The `BedrockClient` includes proper resource management:
+
+```python
+async def close(self) -> None:
+    """
+    Clean up resources when the client is no longer needed.
+    
+    This method should be called when you're done using the client to ensure
+    proper cleanup of resources.
+    """
+    # Cancel any pending tasks
+    tasks = [task for task in asyncio.all_tasks()
+            if task is not asyncio.current_task() and not task.done()]
+    
+    for task in tasks:
+        task.cancel()
+        
+    # Wait for tasks to be cancelled
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+        
+    logging.info("BedrockClient resources cleaned up")
+```
+
+### Error Handling and Retry Logic
+
+The client includes comprehensive error handling and retry logic:
+
+```python
+@async_retry(
+    retries=3,
+    delay=1.0,
+    backoff=2.0,
+    max_delay=30.0,
+    jitter=True,
+    exceptions=(botocore.exceptions.ClientError, ConnectionError, TimeoutError),
+)
+async def _invoke_model_with_token_management(self, messages, max_tokens=None, retry_on_token_error=True):
+    """Invoke model with automatic token management to prevent 'Input is too long' errors."""
+    # Implementation details...
 ```
 
 ## LLMClientFactory
@@ -543,15 +672,35 @@ config = {
     'llm_provider': 'bedrock',
     'bedrock': {
         'region': 'us-east-1',
-        'model_id': 'us.anthropic.claude-3-5-sonnet-20241022-v2:0'
-    }
+        'model_id': 'us.anthropic.claude-3-7-sonnet-20250219-v1:0',
+        'max_tokens': 4096,
+        'timeout': 120,
+        'retries': 3,
+        'temperature': 0
+    },
+    'debug': True
 }
 
 # Create the client using the factory
 llm_client = await LLMClientFactory.create_client(config)
 
-# Use the client as before
+# Validate AWS credentials
+is_valid = await llm_client.validate_aws_credentials()
+if not is_valid:
+    print("AWS credentials are invalid or missing")
+    # Handle the error or fall back to another provider
+
+# Use the client
 summary = await llm_client.generate_summary("def hello(): print('Hello world')")
+project_overview = await llm_client.generate_project_overview(file_manifest)
+
+# Generate documentation using the helper method
+system_content = "You are a helpful documentation assistant."
+user_content = "Please document this function: def hello(): print('Hello world')"
+documentation = await llm_client._create_and_invoke_bedrock_request(system_content, user_content)
+
+# Clean up resources when done
+await llm_client.close()
 ```
 
 ## Extending with New Providers
