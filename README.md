@@ -469,6 +469,8 @@ For example, paths like `src/main/java/com/example/project/Controller.java` are 
 
 - **Dependencies Error Fix**: Fixed an issue with the `dependencies` field in the project overview generation. The problem was that the original file manifest was being passed to the dependency analysis function instead of the converted manifest, causing errors when processing FileInfo objects.
 
+- **Template Parameter Fix**: Fixed an issue in the `BedrockClient` class where the `dependencies` parameter was missing in the `format` method call for the project overview template, causing a KeyError.
+
 ### Bytecode Caching
 
 Python bytecode caching is currently disabled for development purposes. To re-enable it:
@@ -531,3 +533,15 @@ While the cache is generally committed to the repository, certain directories ar
 
 - **Test Folders**: Cache files in `tests/` and its subdirectories are excluded from git
 - This prevents test-generated cache files from being committed while still allowing the main project cache to be shared
+
+## TODO
+
+### Completed
+- ✅ **Dependencies Error Fix**: Fixed an issue with the `dependencies` parameter missing in the `generate_project_overview` method in `BedrockClient` class.
+
+### Planned
+- 📝 **Split Documentation Files**: Move usage and contributing guides to separate files with their own generators.
+- 🔗 **Improve Documentation Links**: Ensure generated README properly links to all other documentation files.
+- 🧪 **Improve Test Coverage**: Add more unit tests for the core functionality.
+- 🚀 **Performance Optimization**: Optimize the file processing pipeline for better performance.
+- 🗑️ **Fix Lingering Folders**: Clean up lingering temporary folders in home directory when pulling from GitHub.

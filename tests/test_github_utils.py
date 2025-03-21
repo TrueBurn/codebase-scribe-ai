@@ -14,6 +14,7 @@ from src.utils.github_utils import (
     is_valid_github_url,
     extract_repo_info,
     _create_auth_url,
+    create_pull_request,
     GitHubAuthError,
     GitHubAPIError,
     GitOperationError
@@ -194,3 +195,68 @@ class TestGitHubUtils:
         mock_repo.get_pulls.return_value = []
         result = find_existing_pr("https://github.com/username/repo", "token", "non-existent-branch")
         assert result is None
+        
+    @pytest.mark.asyncio
+    @patch('src.utils.github_utils._get_github_repo')
+    async def test_create_pull_request(self, mock_get_repo):
+        """Test creating a pull request with labels."""
+        # Setup mock GitHub repo and PR
+        mock_repo = MagicMock()
+        mock_pr = MagicMock()
+        mock_get_repo.return_value = mock_repo
+        mock_repo.create_pull.return_value = mock_pr
+        mock_repo.default_branch = "main"
+        mock_pr.number = 123
+        mock_pr.html_url = "https://github.com/username/repo/pull/123"
+        mock_pr.title = "Test PR"
+        
+        # Test creating a PR with default labels
+        result = await create_pull_request(
+            "https://github.com/username/repo",
+            "token",
+            "test-branch",
+            "Test PR",
+            "Test PR body"
+        )
+        
+        # Verify PR was created with correct parameters
+        mock_repo.create_pull.assert_called_with(
+            title="Test PR",
+            body="Test PR body",
+            head="test-branch",
+            base="main"
+        )
+        
+        # Verify labels were added
+        mock_pr.add_to_labels.assert_called_with("automated", "documentation")
+        assert result == "https://github.com/username/repo/pull/123"
+        
+        # Test creating a PR with custom labels
+        mock_pr.add_to_labels.reset_mock()
+        result = await create_pull_request(
+            "https://github.com/username/repo",
+            "token",
+            "test-branch",
+            "Test PR",
+            "Test PR body",
+            labels=["custom-label", "another-label"]
+        )
+        
+        # Verify custom labels were added
+        mock_pr.add_to_labels.assert_called_with("custom-label", "another-label")
+        assert result == "https://github.com/username/repo/pull/123"
+        
+        # Test creating a PR with no labels
+        mock_pr.add_to_labels.reset_mock()
+        result = await create_pull_request(
+            "https://github.com/username/repo",
+            "token",
+            "test-branch",
+            "Test PR",
+            "Test PR body",
+            labels=[]
+        )
+        
+        # Verify no labels were added
+        assert not mock_pr.add_to_labels.called
+        assert result == "https://github.com/username/repo/pull/123"

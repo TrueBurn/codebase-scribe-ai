@@ -14,7 +14,7 @@ import time
 import subprocess
 import asyncio
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any, Union, TypeVar, cast
+from typing import Optional, Tuple, Dict, Any, Union, TypeVar, cast, List
 
 # Constants for configuration
 TEMP_DIR_PREFIX = "readme_gen_temp"
@@ -670,7 +670,8 @@ async def prepare_github_branch(github_url: str, token: str, branch_name: str) -
     return True
 
 async def create_pull_request(github_url: str, token: str, branch_name: str,
-                             pr_title: str, pr_body: str) -> Optional[str]:
+                             pr_title: str, pr_body: str,
+                             labels: List[str] = None) -> Optional[str]:
     """Create a pull request on GitHub using PyGithub.
     
     Args:
@@ -679,6 +680,7 @@ async def create_pull_request(github_url: str, token: str, branch_name: str,
         branch_name: Name of the branch to create PR from
         pr_title: Title for the pull request
         pr_body: Body text for the pull request
+        labels: List of labels to add to the pull request (default: None)
         
     Returns:
         Optional[str]: URL of the created pull request, or None if creation failed
@@ -687,6 +689,10 @@ async def create_pull_request(github_url: str, token: str, branch_name: str,
         GitHubAuthError: If authentication fails
         GitHubAPIError: If the repository cannot be accessed
     """
+    # Default labels for documentation PRs
+    if labels is None:
+        labels = ["automated", "documentation"]
+        
     try:
         # Get repository using helper function
         repo = _get_github_repo(github_url, token)
@@ -702,6 +708,11 @@ async def create_pull_request(github_url: str, token: str, branch_name: str,
             head=branch_name,
             base=default_branch
         )
+        
+        # Add labels to the pull request
+        if labels:
+            pr.add_to_labels(*labels)
+            logging.info(f"Added labels to PR: {', '.join(labels)}")
         
         logging.info(f"Created pull request #{pr.number}: {pr.title}")
         logging.info(f"Pull request URL: {pr.html_url}")

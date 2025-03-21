@@ -598,13 +598,14 @@ async def main():
                 # Push branch
                 await push_branch_to_remote(repo_path, args.branch_name, github_token, args.github)
                 
-                # Create PR
+                # Create PR with automated and documentation labels
                 pr_url = await create_pull_request(
                     args.github,
                     github_token,
                     args.branch_name,
                     args.pr_title,
-                    args.pr_body
+                    args.pr_body,
+                    labels=["automated", "documentation"]
                 )
                 
                 print(f"Pull request created: {pr_url}")
