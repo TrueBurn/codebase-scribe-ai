@@ -463,9 +463,11 @@ The path compression system:
 
 For example, paths like `src/main/java/com/example/project/Controller.java` are compressed to `@1/Controller.java`, saving tokens while maintaining readability.
 
-### TODOs
+### Recent Fixes
 
-- **Fix Dependencies Error**: There's an issue with the `dependencies` field in the project overview generation. This needs to be investigated and fixed to ensure proper documentation generation.
+- **Path Compression**: Added a path compression utility that reduces token usage when sending file paths to LLMs. This is particularly useful for Java projects with deep package structures.
+
+- **Dependencies Error Fix**: Fixed an issue with the `dependencies` field in the project overview generation. The problem was that the original file manifest was being passed to the dependency analysis function instead of the converted manifest, causing errors when processing FileInfo objects.
 
 ### Bytecode Caching
 

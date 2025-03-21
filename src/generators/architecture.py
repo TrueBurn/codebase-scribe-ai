@@ -362,7 +362,8 @@ def analyze_basic_structure(file_manifest: dict) -> Dict[str, str]:
     # Count file types
     file_types = {}
     for path in file_manifest.keys():
-        ext = path.split('.')[-1] if '.' in path else 'unknown'
+        path_str = str(path)
+        ext = path_str.split('.')[-1] if '.' in path_str else 'unknown'
         file_types[ext] = file_types.get(ext, 0) + 1
     
     # Create technology stack section based on file extensions
@@ -387,7 +388,7 @@ def analyze_basic_structure(file_manifest: dict) -> Dict[str, str]:
     sections["Technology Stack"] = tech_stack
     
     # Look for common project patterns
-    has_tests = any('test' in path.lower() for path in file_manifest.keys())
+    has_tests = any('test' in str(path).lower() for path in file_manifest.keys())
     has_docs = any('doc' in path.lower() for path in file_manifest.keys())
     has_ci = any('.github/workflows' in path for path in file_manifest.keys())
     

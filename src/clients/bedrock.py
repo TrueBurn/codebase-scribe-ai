@@ -413,7 +413,7 @@ class BedrockClient(BaseLLMClient):
                     # Keep as is
                     converted_manifest[path] = info
             
-            result = find_common_dependencies(file_manifest, self.debug)
+            result = find_common_dependencies(converted_manifest, self.debug)
             # Ensure result is a string
             if not isinstance(result, str):
                 logging.warning(f"find_common_dependencies returned non-string: {type(result)}")
@@ -428,7 +428,18 @@ class BedrockClient(BaseLLMClient):
     def _identify_key_components(self, file_manifest: dict) -> str:
         """Identify key components from file manifest."""
         try:
-            result = identify_key_components(file_manifest, self.debug)
+            # Convert file_manifest if needed
+            # If file_manifest contains FileInfo objects but identify_key_components expects dicts
+            converted_manifest = {}
+            for path, info in file_manifest.items():
+                if hasattr(info, 'to_dict'):
+                    # Convert FileInfo to dict if needed
+                    converted_manifest[path] = info.to_dict()
+                else:
+                    # Keep as is
+                    converted_manifest[path] = info
+            
+            result = identify_key_components(converted_manifest, self.debug)
             # Ensure result is a string
             if not isinstance(result, str):
                 logging.warning(f"identify_key_components returned non-string: {type(result)}")
@@ -671,7 +682,6 @@ class BedrockClient(BaseLLMClient):
                 pbar.update(20)
                 
                 try:
-                    # Use the new token-aware invocation method
                     content = await self._invoke_model_with_token_management(messages)
                     
                     # Update progress
@@ -682,7 +692,35 @@ class BedrockClient(BaseLLMClient):
                     
                     logging.info("Successfully received architecture content from LLM")
                     return content
+                
+                except botocore.exceptions.ClientError as e:
+                    # Cancel progress update task
+                    update_task.cancel()
                     
+                    error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+                    error_message = e.response.get('Error', {}).get('Message', str(e))
+                    
+                    if error_code in ['UnrecognizedClientException', 'InvalidSignatureException', 'SignatureDoesNotMatch', 'ExpiredToken']:
+                        logging.error(f"AWS authentication error: {error_code} - {error_message}")
+                        logging.error("Please check your AWS credentials and ensure they are valid and not expired.")
+                        
+                        # Return a more helpful error message
+                        return (
+                            "# Architecture Documentation\n\n"
+                            "## Error: AWS Authentication Failed\n\n"
+                            f"Unable to generate architecture documentation due to an AWS authentication error: {error_code}.\n\n"
+                            "### Possible Solutions:\n\n"
+                            "1. Check that your AWS credentials are valid and not expired\n"
+                            "2. Verify that your IAM user has permissions to access Bedrock\n"
+                            "3. Try using a different LLM provider with `--llm-provider ollama`\n"
+                        )
+                    else:
+                        logging.error(f"Error in LLM architecture generation: {error_code} - {error_message}")
+                        logging.error(f"Exception details: {traceback.format_exc()}")
+                        
+                        # Return a fallback message
+                        return "# Architecture Documentation\n\nUnable to generate architecture documentation due to an error."
+                
                 except Exception as e:
                     # Cancel progress update task
                     update_task.cancel()
