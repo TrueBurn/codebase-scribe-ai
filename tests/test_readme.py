@@ -61,10 +61,12 @@ class TestReadmeGenerator:
     @pytest.fixture
     def test_config(self):
         """Create a test configuration."""
-        return {
-            "debug": False,
-            "preserve_existing": True
-        }
+        from src.utils.config_class import ScribeConfig
+        
+        config = ScribeConfig()
+        config.debug = False
+        config.preserve_existing = True
+        return config
     
     @pytest.fixture
     def test_file_manifest(self):
@@ -126,7 +128,9 @@ class TestReadmeGenerator:
         assert should_enhance_existing_readme(repo_path, test_config) is True
         
         # Test with preserve_existing=False
-        config_no_preserve = {"preserve_existing": False}
+        from src.utils.config_class import ScribeConfig
+        config_no_preserve = ScribeConfig()
+        config_no_preserve.preserve_existing = False
         assert should_enhance_existing_readme(repo_path, config_no_preserve) is False
     
     @pytest.mark.asyncio

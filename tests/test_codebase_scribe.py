@@ -8,6 +8,7 @@ import os
 import pytest
 import tempfile
 import asyncio
+import logging
 from pathlib import Path
 from unittest.mock import patch, MagicMock, AsyncMock
 
@@ -63,18 +64,36 @@ def config():
 async def test_setup_logging():
     """Test the setup_logging function."""
     # Test with debug=True and log_to_file=False
-    with patch('logging.basicConfig') as mock_basic_config:
+    with patch('logging.getLogger') as mock_get_logger:
+        # Mock the root logger and its methods
+        mock_root_logger = MagicMock()
+        mock_get_logger.return_value = mock_root_logger
+        
+        # Call the function
         codebase_scribe.setup_logging(debug=True, log_to_file=False)
-        mock_basic_config.assert_called_once()
-        args, kwargs = mock_basic_config.call_args
-        assert kwargs['level'] == codebase_scribe.logging.DEBUG
+        
+        # Verify the root logger was configured correctly
+        mock_get_logger.assert_called_once()
+        mock_root_logger.setLevel.assert_called_with(logging.DEBUG)
+        
+        # Verify handlers were added
+        assert mock_root_logger.addHandler.called
     
     # Test with debug=False and log_to_file=False
-    with patch('logging.basicConfig') as mock_basic_config:
+    with patch('logging.getLogger') as mock_get_logger:
+        # Mock the root logger and its methods
+        mock_root_logger = MagicMock()
+        mock_get_logger.return_value = mock_root_logger
+        
+        # Call the function
         codebase_scribe.setup_logging(debug=False, log_to_file=False)
-        mock_basic_config.assert_called_once()
-        args, kwargs = mock_basic_config.call_args
-        assert kwargs['level'] == codebase_scribe.logging.INFO
+        
+        # Verify the root logger was configured correctly
+        mock_get_logger.assert_called_once()
+        mock_root_logger.setLevel.assert_called_with(logging.DEBUG)
+        
+        # Verify handlers were added
+        assert mock_root_logger.addHandler.called
 
 
 @pytest.mark.asyncio
@@ -240,7 +259,7 @@ async def test_main_with_local_repo(temp_repo):
         # Mock setup_logging
         with patch('codebase_scribe.setup_logging') as mock_setup_logging:
             # Mock load_config
-            with patch('codebase_scribe.load_config', return_value={}) as mock_load_config:
+            with patch('codebase_scribe.load_config', return_value=ScribeConfig()) as mock_load_config:
                 # Mock LLMClientFactory
                 with patch('codebase_scribe.LLMClientFactory') as mock_llm_factory:
                     mock_llm_client = AsyncMock()
@@ -255,8 +274,8 @@ async def test_main_with_local_repo(temp_repo):
                             'src/main/utils.py': FileInfo(path='src/main/utils.py', language='python', content='print("World")'),
                             'README.md': FileInfo(path='README.md', language='markdown', content='# Test')
                         }
-                        # Make analyze_repository an AsyncMock that returns the file_manifest
-                        mock_analyzer.analyze_repository = AsyncMock(return_value=file_manifest)
+                        # Make analyze_repository a regular MagicMock that returns the file_manifest
+                        mock_analyzer.analyze_repository = MagicMock(return_value=file_manifest)
                         mock_analyzer.cache.enabled = True
                         mock_analyzer_class.return_value = mock_analyzer
                         

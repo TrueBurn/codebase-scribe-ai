@@ -17,23 +17,36 @@ from src.utils.config_class import ScribeConfig
 
 @pytest.fixture
 def sample_config_dict():
-    """Create a sample configuration dictionary."""
-    return {
-        'debug': True,
-        'cache': {
-            'enabled': True,
-            'directory': '.test_cache',
-            'location': 'repo',
-            'hash_algorithm': 'sha256',
-            'global_directory': '.test_global_cache'
-        }
-    }
+    """Create a sample configuration object."""
+    from src.utils.config_class import ScribeConfig, CacheConfig
+    
+    config = ScribeConfig()
+    config.debug = True
+    config.cache = CacheConfig(
+        enabled=True,
+        directory='.test_cache',
+        location='repo',
+        hash_algorithm='sha256',
+        global_directory='.test_global_cache'
+    )
+    return config
 
 
 @pytest.fixture
-def sample_config(sample_config_dict):
+def sample_config():
     """Create a sample ScribeConfig instance."""
-    return ScribeConfig.from_dict(sample_config_dict)
+    from src.utils.config_class import ScribeConfig, CacheConfig
+    
+    config = ScribeConfig()
+    config.debug = True
+    config.cache = CacheConfig(
+        enabled=True,
+        directory='.test_cache',
+        location='repo',  # Same as sample_config_dict
+        hash_algorithm='md5',  # Different from sample_config_dict
+        global_directory='.test_global_cache'
+    )
+    return config
 
 
 @pytest.fixture
@@ -57,8 +70,8 @@ def temp_repo_path():
 class TestCacheManager:
     """Test suite for CacheManager with ScribeConfig."""
 
-    def test_init_with_dict(self, sample_config_dict, temp_repo_path):
-        """Test initializing CacheManager with a dictionary."""
+    def test_init_with_scribe_config(self, sample_config_dict, temp_repo_path):
+        """Test initializing CacheManager with a ScribeConfig object."""
         cache_manager = CacheManager(
             enabled=True,
             repo_identifier='test-repo',
@@ -77,8 +90,8 @@ class TestCacheManager:
             cache_manager.close()
             CacheManager.close_all_connections()
 
-    def test_init_with_scribe_config(self, sample_config, temp_repo_path):
-        """Test initializing CacheManager with a ScribeConfig instance."""
+    def test_init_with_sample_config(self, sample_config, temp_repo_path):
+        """Test initializing CacheManager with a different ScribeConfig instance."""
         cache_manager = CacheManager(
             enabled=True,
             repo_identifier='test-repo',
@@ -89,7 +102,7 @@ class TestCacheManager:
         try:
             assert cache_manager.enabled is True
             assert cache_manager.repo_identifier == 'test-repo'
-            assert cache_manager.hash_algorithm == 'sha256'
+            assert cache_manager.hash_algorithm == 'md5'  # Different from test_init_with_scribe_config
             assert cache_manager.debug is True
             assert cache_manager.cache_dir == temp_repo_path / '.test_cache'
         finally:

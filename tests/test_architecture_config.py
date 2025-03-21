@@ -16,21 +16,32 @@ from src.utils.config_class import ScribeConfig
 
 @pytest.fixture
 def sample_config_dict():
-    """Create a sample configuration dictionary."""
-    return {
-        'debug': True,
-        'test_mode': True,
-        'blacklist': {
-            'extensions': ['.log', '.tmp'],
-            'path_patterns': ['/node_modules/', '/__pycache__/']
-        }
-    }
+    """Create a sample configuration object."""
+    from src.utils.config_class import ScribeConfig, BlacklistConfig
+    
+    config = ScribeConfig()
+    config.debug = True
+    config.test_mode = True
+    config.blacklist = BlacklistConfig(
+        extensions=['.log', '.tmp'],
+        path_patterns=['/node_modules/', '/__pycache__/']
+    )
+    return config
 
 
 @pytest.fixture
-def sample_config(sample_config_dict):
+def sample_config():
     """Create a sample ScribeConfig instance."""
-    return ScribeConfig.from_dict(sample_config_dict)
+    from src.utils.config_class import ScribeConfig, BlacklistConfig
+    
+    config = ScribeConfig()
+    config.debug = True
+    config.test_mode = True
+    config.blacklist = BlacklistConfig(
+        extensions=['.log', '.tmp'],
+        path_patterns=['/node_modules/', '/__pycache__/']
+    )
+    return config
 
 
 @pytest.fixture
@@ -83,8 +94,8 @@ class TestArchitectureGenerator:
 
     @pytest.mark.asyncio
     @patch('src.generators.architecture.CodebaseAnalyzer')
-    async def test_generate_architecture_with_dict(self, mock_analyzer_class, temp_repo_path, mock_llm_client, file_manifest, sample_config_dict):
-        """Test generating architecture documentation with a dictionary config."""
+    async def test_generate_architecture_with_config(self, mock_analyzer_class, temp_repo_path, mock_llm_client, file_manifest, sample_config_dict):
+        """Test generating architecture documentation with a ScribeConfig object."""
         # Set up mock analyzer
         mock_analyzer = MagicMock()
         mock_analyzer.derive_project_name.return_value = "Test Project"

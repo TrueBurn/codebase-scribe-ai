@@ -24,8 +24,11 @@ class TestArchitecture(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
+        from src.utils.config_class import ScribeConfig
+        
         self.repo_path = Path('/test/repo')
-        self.config = {'debug': False}
+        self.config = ScribeConfig()
+        self.config.debug = False
         self.file_manifest = {
             'src/main.py': MagicMock(summary="Main entry point"),
             'src/utils.py': MagicMock(summary="Utility functions"),
@@ -189,11 +192,15 @@ This should be sufficient to pass the length check in the generate_architecture 
         
         # Run the test with debug enabled
         with patch('src.generators.architecture.logging.info') as mock_log_info:
+            from src.utils.config_class import ScribeConfig
+            debug_config = ScribeConfig()
+            debug_config.debug = True
+            
             result = asyncio.run(generate_architecture(
                 repo_path=self.repo_path,
                 file_manifest=self.file_manifest,
                 llm_client=mock_llm,
-                config={'debug': True}
+                config=debug_config
             ))
         
         # Check that debug logs were called

@@ -10,18 +10,20 @@ from src.utils.tokens import TokenCounter
 @pytest.fixture
 def mock_config():
     """Fixture to provide a test configuration."""
-    return {
-        'ollama': {
-            'base_url': 'http://localhost:11434',
-            'max_tokens': 4096,
-            'retries': 3,
-            'retry_delay': 1.0,
-            'timeout': 30,
-            'temperature': 0
-        },
-        'template_path': '/path/to/templates',
-        'debug': True
-    }
+    from src.utils.config_class import ScribeConfig, OllamaConfig
+    
+    config = ScribeConfig()
+    config.ollama = OllamaConfig(
+        base_url='http://localhost:11434',
+        max_tokens=4096,
+        retries=3,
+        retry_delay=1.0,
+        timeout=30,
+        temperature=0
+    )
+    config.template_path = '/path/to/templates'
+    config.debug = True
+    return config
 
 @pytest.fixture
 def mock_file_manifest():

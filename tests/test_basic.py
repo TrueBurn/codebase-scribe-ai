@@ -2,11 +2,11 @@ import pytest
 from pathlib import Path
 from src.analyzers.codebase import CodebaseAnalyzer
 from src.clients.ollama import OllamaClient
-from src.utils.config import ConfigManager
+from src.utils.config_class import ScribeConfig
 
 @pytest.fixture
 def config():
-    return ConfigManager("config.yaml")
+    return ScribeConfig()
 
 @pytest.fixture
 def repo_path():

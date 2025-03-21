@@ -20,21 +20,33 @@ from src.utils.config_class import ScribeConfig
 
 @pytest.fixture
 def sample_config_dict():
-    """Create a sample configuration dictionary."""
-    return {
-        'debug': True,
-        'preserve_existing': True,
-        'test_mode': True,
-        'blacklist': {
-            'extensions': ['.log', '.tmp'],
-            'path_patterns': ['/node_modules/', '/__pycache__/']
-        }
-    }
-
+    """Create a sample configuration object."""
+    from src.utils.config_class import ScribeConfig, BlacklistConfig
+    
+    config = ScribeConfig()
+    config.debug = True
+    config.preserve_existing = True
+    config.test_mode = True
+    config.blacklist = BlacklistConfig(
+        extensions=['.log', '.tmp'],
+        path_patterns=['/node_modules/', '/__pycache__/']
+    )
+    return config
 
 @pytest.fixture
-def sample_config(sample_config_dict):
+def sample_config():
     """Create a sample ScribeConfig instance."""
+    from src.utils.config_class import ScribeConfig, BlacklistConfig
+    
+    config = ScribeConfig()
+    config.debug = True
+    config.preserve_existing = True
+    config.test_mode = True
+    config.blacklist = BlacklistConfig(
+        extensions=['.log', '.tmp'],
+        path_patterns=['/node_modules/', '/__pycache__/']
+    )
+    return config
     return ScribeConfig.from_dict(sample_config_dict)
 
 

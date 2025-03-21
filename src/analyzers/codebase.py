@@ -3,7 +3,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Set, Union, Callable
+from typing import Dict, Any, Optional, List, Set, Callable
 
 # Third-party imports
 import magic
@@ -16,7 +16,6 @@ from ..models.file_info import FileInfo
 from ..utils.cache import CacheManager  # Use the standard cache module
 from ..utils.progress import ProgressTracker
 from ..utils.config_class import ScribeConfig
-from ..utils.config_utils import dict_to_config, config_to_dict
 
 class CodebaseAnalyzer:
     """Analyzes repository structure and content.
@@ -47,33 +46,18 @@ class CodebaseAnalyzer:
     # Special directories that are always included
     SPECIAL_DIRS = {".github"}
     
-    def __init__(self, repo_path: Path, config: Union[Dict[str, Any], ScribeConfig]):
+    def __init__(self, repo_path: Path, config: ScribeConfig):
         # Windows-specific normalization
         if os.name == 'nt':
             self.repo_path = Path(os.path.normpath(str(repo_path))).absolute()
         else:
             self.repo_path = Path(repo_path).absolute()
             
-        # Convert to ScribeConfig if it's a dictionary
-        if isinstance(config, dict):
-            self.config_dict = config
-            self.config_obj = dict_to_config(config)
-        else:
-            self.config_obj = config
-            self.config_dict = config_to_dict(config)
+        # Store config
+        self.config_obj = config
             
-        # Store both for backward compatibility
-        self.config = self.config_dict
-        
         # Initialize debug flag first before using it in other methods
-        if isinstance(config, dict):
-            self.debug = config.get('debug', False)
-        else:
-            # Handle ConfigManager or ScribeConfig
-            if hasattr(config, 'debug'):
-                self.debug = config.debug
-            else:
-                self.debug = config.get('debug', False)
+        self.debug = self.config_obj.debug
         
         if self.debug:
             logging.basicConfig(level=logging.DEBUG)
@@ -98,49 +82,29 @@ class CodebaseAnalyzer:
         self.file_manifest: Dict[str, FileInfo] = {}
         
         # Set up cache using github_repo_id if available
-        if isinstance(self.config_obj, ScribeConfig) and hasattr(self.config_obj, 'github_repo_id') and self.config_obj.github_repo_id:
+        if hasattr(self.config_obj, 'github_repo_id') and self.config_obj.github_repo_id:
             # Use stable GitHub repo ID from ScribeConfig
             repo_identifier = self.config_obj.github_repo_id
             if self.debug:
                 logging.debug(f"Using GitHub repo ID for caching: {repo_identifier}")
-        elif self.config_dict.get('github_repo_id'):
-            # Use stable GitHub repo ID from dictionary
-            repo_identifier = self.config_dict['github_repo_id']
-            if self.debug:
-                self.logger.debug(f"Using GitHub repo ID for caching: {repo_identifier}")
         else:
             # Use repository path as identifier
             repo_identifier = str(self.repo_path)
         
-        # Initialize cache with correct parameters
-        if isinstance(self.config_obj, ScribeConfig):
-            self.cache = CacheManager(
-                enabled=not self.config_obj.no_cache if hasattr(self.config_obj, 'no_cache') else True,
-                repo_identifier=repo_identifier,
-                repo_path=self.repo_path,  # Pass repo_path directly to constructor
-                config=self.config_obj  # Pass the ScribeConfig object
-            )
-        else:
-            self.cache = CacheManager(
-                enabled=not self.config_dict.get('no_cache', False),
-                repo_identifier=repo_identifier,
-                repo_path=self.repo_path,  # Pass repo_path directly to constructor
-                config=self.config_dict  # Pass the dictionary config
-            )
+        # Initialize cache with ScribeConfig
+        self.cache = CacheManager(
+            enabled=not self.config_obj.no_cache,
+            repo_identifier=repo_identifier,
+            repo_path=self.repo_path,
+            config=self.config_obj
+        )
         
         # Set debug mode on cache if needed
         self.cache.debug = self.debug
         
         # Initialize blacklist from config
-        if isinstance(self.config_obj, ScribeConfig) and hasattr(self.config_obj, 'blacklist'):
-            # Use ScribeConfig
-            self.blacklist_extensions = set(self.config_obj.blacklist.extensions)
-            self.blacklist_patterns = self.config_obj.blacklist.path_patterns
-        else:
-            # Use dictionary config
-            blacklist_config = self.config_dict.get('blacklist', {})
-            self.blacklist_extensions = set(blacklist_config.get('extensions', []))
-            self.blacklist_patterns = blacklist_config.get('path_patterns', [])
+        self.blacklist_extensions = set(self.config_obj.blacklist.extensions)
+        self.blacklist_patterns = self.config_obj.blacklist.path_patterns
         
         if self.debug:
             logging.debug(f"Blacklist extensions: {self.blacklist_extensions}")
@@ -328,12 +292,8 @@ class CodebaseAnalyzer:
                 return {}
             
             # Test mode - limit to first 5 files
-            test_mode = False
-            if isinstance(self.config_obj, ScribeConfig) and hasattr(self.config_obj, 'test_mode'):
-                test_mode = self.config_obj.test_mode
-            else:
-                test_mode = self.config_dict.get('test_mode', False)
-                
+            test_mode = self.config_obj.test_mode
+            
             if test_mode:
                 all_files = all_files[:5]
                 if self.debug:

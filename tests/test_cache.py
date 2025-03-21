@@ -19,13 +19,15 @@ def test_file(tmp_path):
 @pytest.fixture
 def cache_config():
     """Standard cache configuration for tests"""
-    return {
-        'cache': {
-            'directory': '.cache',
-            'location': 'repo',
-            'hash_algorithm': 'md5'
-        }
-    }
+    from src.utils.config_class import ScribeConfig, CacheConfig
+    
+    config = ScribeConfig()
+    config.cache = CacheConfig(
+        directory='.cache',
+        location='repo',
+        hash_algorithm='md5'
+    )
+    return config
 
 @pytest.fixture
 def cache_manager(tmp_path, cache_config):

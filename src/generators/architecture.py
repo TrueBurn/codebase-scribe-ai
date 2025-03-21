@@ -3,7 +3,7 @@ import logging
 import re
 import traceback
 from pathlib import Path
-from typing import Dict, Any, Union
+from typing import Dict, Any
 import networkx as nx
 
 # Local imports
@@ -11,7 +11,6 @@ from ..analyzers.codebase import CodebaseAnalyzer
 from ..clients.base_llm import BaseLLMClient
 from ..utils.markdown_validator import MarkdownValidator
 from ..utils.config_class import ScribeConfig
-from ..utils.config_utils import dict_to_config, config_to_dict
 from .mermaid import MermaidGenerator
 from .readme import _format_anchor_link
 
@@ -26,7 +25,7 @@ async def generate_architecture(
     repo_path: Path,
     file_manifest: dict,
     llm_client: BaseLLMClient,
-    config: Union[Dict[str, Any], ScribeConfig]
+    config: ScribeConfig
 ) -> str:
     """
     Generate architecture documentation for the repository.
@@ -39,26 +38,18 @@ async def generate_architecture(
         repo_path: Path to the repository
         file_manifest: Dictionary of files in the repository
         llm_client: LLM client for generating content
-        config: Configuration dictionary
+        config: Configuration
         
     Returns:
         Formatted architecture documentation as a string
     """
-    # Convert to ScribeConfig if it's a dictionary
-    if isinstance(config, dict):
-        config_dict = config
-        config_obj = dict_to_config(config)
-    else:
-        config_obj = config
-        config_dict = config_to_dict(config)
-    
     try:
         # Create a temporary analyzer to use its method
         temp_analyzer = CodebaseAnalyzer(repo_path, config)
         temp_analyzer.file_manifest = file_manifest
         
         # Get debug mode
-        debug_mode = config_obj.debug if isinstance(config, ScribeConfig) else config_dict.get('debug', False)
+        debug_mode = config.debug
         project_name = temp_analyzer.derive_project_name(debug_mode)
         
         # Set up logging

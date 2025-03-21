@@ -2,7 +2,7 @@
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any, Union
+from typing import Dict, List, Optional, Tuple, Any
 
 # Local imports
 from ..utils.markdown_validator import MarkdownValidator
@@ -10,7 +10,6 @@ from ..utils.readability import ReadabilityScorer
 from ..clients.base_llm import BaseLLMClient
 from ..analyzers.codebase import CodebaseAnalyzer
 from ..utils.config_class import ScribeConfig
-from ..utils.config_utils import dict_to_config, config_to_dict
 
 # Constants for configuration
 # Thresholds for content length and quality checks
@@ -80,7 +79,7 @@ async def generate_readme(
     llm_client: BaseLLMClient,
     file_manifest: dict,
     file_summaries: dict,
-    config: Union[Dict[str, Any], ScribeConfig],
+    config: ScribeConfig,
     analyzer: CodebaseAnalyzer,
     output_dir: str,
     existing_readme: Optional[str] = None,
@@ -103,17 +102,9 @@ async def generate_readme(
     Returns:
         str: Generated README content
     """
-    # Convert to ScribeConfig if it's a dictionary
-    if isinstance(config, dict):
-        config_dict = config
-        config_obj = dict_to_config(config)
-    else:
-        config_obj = config
-        config_dict = config_to_dict(config)
-    
     try:
         # Use the analyzer's method to get a consistent project name
-        debug_mode = config_obj.debug if isinstance(config, ScribeConfig) else config_dict.get('debug', False)
+        debug_mode = config.debug
         project_name = analyzer.derive_project_name(debug_mode)
         logging.info(f"Using project name: {project_name}")
         
@@ -132,22 +123,19 @@ async def generate_readme(
         logging.error(f"Error generating README: {e}")
         return generate_fallback_readme(repo_path, architecture_file_exists)
 
-def should_enhance_existing_readme(repo_path: Path, config: Union[Dict[str, Any], ScribeConfig]) -> bool:
+def should_enhance_existing_readme(repo_path: Path, config: ScribeConfig) -> bool:
     """
     Determine if we should enhance an existing README.
     
     Args:
         repo_path: Path to the repository
-        config: Configuration (dictionary or ScribeConfig)
+        config: Configuration
         
     Returns:
         bool: True if we should enhance existing README
     """
     # Check if we should preserve existing content
-    if isinstance(config, ScribeConfig):
-        preserve_existing = config.preserve_existing if hasattr(config, 'preserve_existing') else True
-    else:
-        preserve_existing = config.get('preserve_existing', True)  # Default to True
+    preserve_existing = config.preserve_existing
     readme_path = repo_path / 'README.md'
     # Check if README exists and preserve_existing is True
     if not (preserve_existing and readme_path.exists()):
@@ -223,7 +211,7 @@ async def generate_new_readme(
     file_manifest: dict,
     project_name: str,
     architecture_file_exists: bool,
-    config: Union[Dict[str, Any], ScribeConfig]
+    config: ScribeConfig
 ) -> str:
     """
     Generate a new README from scratch.
@@ -234,7 +222,7 @@ async def generate_new_readme(
         file_manifest: Dictionary of files in the repository
         project_name: Name of the project
         architecture_file_exists: Whether ARCHITECTURE.md exists
-        config: Configuration dictionary
+        config: Configuration
         
     Returns:
         str: Generated README content

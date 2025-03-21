@@ -10,11 +10,10 @@ import hashlib
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any
 
 # Local imports
 from .config_class import ScribeConfig
-from .config_utils import dict_to_config, config_to_dict
 
 @dataclass
 class CacheEntry:
@@ -136,64 +135,44 @@ class CacheManager:
     # Default hash algorithm
     DEFAULT_HASH_ALGORITHM = 'md5'
     
-    def __init__(self, enabled: bool = True, repo_identifier: str = None, repo_path: Optional[Path] = None, config: Optional[Union[Dict[str, Any], ScribeConfig]] = None):
+    def __init__(self, enabled: bool = True, repo_identifier: str = None, repo_path: Optional[Path] = None, config: Optional[ScribeConfig] = None):
         """Initialize the cache manager.
         
         Args:
             enabled: Whether caching is enabled
             repo_identifier: Unique identifier for the repository (e.g., GitHub repo name)
             repo_path: Path to the repository
-            config: Configuration (dictionary or ScribeConfig) with cache settings
+            config: Configuration with cache settings
         """
         self.enabled = enabled
         self.repo_identifier = repo_identifier
         self.debug = True  # Enable debug mode to help diagnose issues
         self._repo_path = repo_path  # Store the repository path
         
-        # Convert to ScribeConfig if it's a dictionary
-        if isinstance(config, dict):
-            config_dict = config
-            config_obj = dict_to_config(config) if config else None
-        elif isinstance(config, ScribeConfig):
-            config_obj = config
-            config_dict = config_to_dict(config)
-        else:
-            config_dict = None
-            config_obj = None
-        
         # Get cache configuration
-        if config_obj:
+        if config:
             # Use ScribeConfig
-            self.cache_config = config_dict.get('cache', {}) if config_dict else {}
-            cache_location = config_obj.cache.location if config_obj else 'repo'
-            cache_dir_name = config_obj.cache.directory if config_obj else self.DEFAULT_REPO_CACHE_DIR
-            self.hash_algorithm = config_obj.cache.hash_algorithm if config_obj else self.DEFAULT_HASH_ALGORITHM
+            self.cache_location = config.cache.location
+            self.cache_dir_name = config.cache.directory
+            self.hash_algorithm = config.cache.hash_algorithm
+            self.debug = config.debug
+            self.global_cache_dir = config.cache.global_directory
         else:
-            # Use dictionary or defaults
-            self.cache_config = config_dict.get('cache', {}) if config_dict else {}
-            cache_location = self.cache_config.get('location', 'repo')
-            cache_dir_name = self.cache_config.get('directory', self.DEFAULT_REPO_CACHE_DIR)
-            self.hash_algorithm = self.cache_config.get('hash_algorithm', self.DEFAULT_HASH_ALGORITHM)
+            # Use defaults
+            self.cache_location = 'repo'
+            self.cache_dir_name = self.DEFAULT_REPO_CACHE_DIR
+            self.hash_algorithm = self.DEFAULT_HASH_ALGORITHM
+            self.global_cache_dir = self.DEFAULT_GLOBAL_CACHE_DIR
         
         # Create cache directory based on location setting
-        if cache_location == 'home' or not repo_path:
+        if self.cache_location == 'home' or not repo_path:
             # Use user's home directory
-            if config_obj:
-                global_cache_dir = config_obj.cache.global_directory
-            else:
-                global_cache_dir = self.cache_config.get('global_directory', self.DEFAULT_GLOBAL_CACHE_DIR)
-            self.cache_dir = Path.home() / global_cache_dir
+            self.cache_dir = Path.home() / self.global_cache_dir
         else:
             # Use repository path with configured directory name
-            self.cache_dir = repo_path / cache_dir_name
+            self.cache_dir = repo_path / self.cache_dir_name
             
         os.makedirs(self.cache_dir, exist_ok=True)
-        
-        # Set debug flag from config if available
-        if config_obj:
-            self.debug = config_obj.debug
-        elif config_dict:
-            self.debug = config_dict.get('debug', False)
         
         # Initialize repo cache directory and db path
         # Always use get_repo_cache_dir to determine the cache directory
@@ -238,21 +217,21 @@ class CacheManager:
             if self.debug:
                 print("Warning: No repository path provided, using default cache directory")
             return self.cache_dir
-            
-        # Get cache location from config
-        cache_location = self.cache_config.get('location', 'repo')
-        
-        if self.debug:
-            print(f"Cache location from config: {cache_location}")
-            
-        # Always use home directory if cache_location is 'home'
-        if cache_location == 'home':
-            # Get the global cache directory from config
-            if isinstance(self.cache_config, dict):
-                global_cache_dir = self.cache_config.get('global_directory', self.DEFAULT_GLOBAL_CACHE_DIR)
+            # Use the cache location that was set in the constructor
+            if hasattr(self, 'cache_location'):
+                cache_location = self.cache_location
             else:
-                global_cache_dir = self.DEFAULT_GLOBAL_CACHE_DIR
+                cache_location = 'repo'  # Default
+            
+            if self.debug:
+                print(f"Cache location: {cache_location}")
                 
+            # Always use home directory if cache_location is 'home'
+            if cache_location == 'home':
+                # Use the global cache directory that was set in the constructor
+                global_cache_dir = self.global_cache_dir if hasattr(self, 'global_cache_dir') else self.DEFAULT_GLOBAL_CACHE_DIR
+            global_cache_dir = self.DEFAULT_GLOBAL_CACHE_DIR
+            
             # Create the home directory cache path
             home_cache_dir = Path.home() / global_cache_dir
             
@@ -280,7 +259,7 @@ class CacheManager:
                 return home_cache_dir / safe_dir
         else:
             # Using repository directory
-            cache_dir_name = self.cache_config.get('directory', '.cache')
+            cache_dir_name = self.cache_dir_name if hasattr(self, 'cache_dir_name') else '.cache'
             
             if self.repo_identifier:
                 # Use stable identifier (for GitHub repos)
@@ -594,29 +573,31 @@ class CacheManager:
             return True
 
     @classmethod
-    def clear_all_caches(cls, cache_dir: Optional[Path] = None, repo_path: Optional[Path] = None, config: Optional[Dict[str, Any]] = None) -> None:
+    def clear_all_caches(cls, cache_dir: Optional[Path] = None, repo_path: Optional[Path] = None, config: Optional[ScribeConfig] = None) -> None:
         """Clear all caches for all repositories.
         
         Args:
             cache_dir: The cache directory to clear (default: None, will use config)
             repo_path: The repository path to clear cache for (default: None)
-            config: Configuration dictionary (default: None)
+            config: Configuration (default: None)
         """
         try:
+            config_obj = config
+            
             # Get cache location from config
             cache_location = 'repo'  # Default to repo
-            if config and 'cache' in config:
-                cache_location = config.get('cache', {}).get('location', 'repo')
+            if config_obj and hasattr(config_obj, 'cache'):
+                cache_location = config_obj.cache.location
                 
             # Get cache directory name from config
             cache_dir_name = '.cache'
-            if config and 'cache' in config:
-                cache_dir_name = config.get('cache', {}).get('directory', '.cache')
+            if config_obj and hasattr(config_obj, 'cache'):
+                cache_dir_name = config_obj.cache.directory
                 
             # Get global cache directory name from config
             global_cache_dir_name = cls.DEFAULT_GLOBAL_CACHE_DIR
-            if config and 'cache' in config:
-                global_cache_dir_name = config.get('cache', {}).get('global_directory', cls.DEFAULT_GLOBAL_CACHE_DIR)
+            if config_obj and hasattr(config_obj, 'cache'):
+                global_cache_dir_name = config_obj.cache.global_directory
                 
             # Create the global cache directory path
             global_cache_dir = Path.home() / global_cache_dir_name
@@ -624,9 +605,9 @@ class CacheManager:
             # If cache_location is 'home', only clear the global cache directory
             if cache_location == 'home':
                 # If repo_path is provided, only clear the specific repository's cache
-                if repo_path and config and 'github_repo_id' in config:
+                if repo_path and config_obj and hasattr(config_obj, 'github_repo_id') and config_obj.github_repo_id:
                     # Get the repository identifier
-                    repo_id = config['github_repo_id']
+                    repo_id = config_obj.github_repo_id
                     safe_id = repo_id.replace('/', '_')
                     safe_id = re.sub(r'[<>:"|?*]', '_', safe_id)  # Replace Windows-invalid chars
                     

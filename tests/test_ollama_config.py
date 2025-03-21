@@ -14,31 +14,44 @@ from src.utils.config_class import ScribeConfig
 
 @pytest.fixture
 def sample_config_dict():
-    """Create a sample configuration dictionary."""
-    return {
-        'debug': True,
-        'ollama': {
-            'base_url': 'http://test-ollama:11434',
-            'max_tokens': 2048,
-            'retries': 5,
-            'retry_delay': 2.0,
-            'timeout': 60,
-            'temperature': 0.5
-        }
-    }
-
+    """Create a sample configuration object."""
+    from src.utils.config_class import ScribeConfig, OllamaConfig
+    
+    config = ScribeConfig()
+    config.debug = True
+    config.ollama = OllamaConfig(
+        base_url='http://test-ollama:11434',
+        max_tokens=2048,
+        retries=5,
+        retry_delay=2.0,
+        timeout=60,
+        temperature=0.5
+    )
+    return config
 
 @pytest.fixture
-def sample_config(sample_config_dict):
+def sample_config():
     """Create a sample ScribeConfig instance."""
-    return ScribeConfig.from_dict(sample_config_dict)
+    from src.utils.config_class import ScribeConfig, OllamaConfig
+    
+    config = ScribeConfig()
+    config.debug = True
+    config.ollama = OllamaConfig(
+        base_url='http://test-ollama:11434',
+        max_tokens=2048,
+        retries=5,
+        retry_delay=2.0,
+        timeout=60,
+        temperature=0.5
+    )
+    return config
 
 
 class TestOllamaClient:
     """Test suite for OllamaClient with ScribeConfig."""
 
-    def test_init_with_dict(self, sample_config_dict):
-        """Test initializing OllamaClient with a dictionary."""
+    def test_init_with_scribe_config(self, sample_config_dict):
+        """Test initializing OllamaClient with a ScribeConfig instance."""
         client = OllamaClient(sample_config_dict)
         
         assert client.base_url == 'http://test-ollama:11434'
@@ -48,9 +61,10 @@ class TestOllamaClient:
         assert client.timeout == 60
         assert client.temperature == 0.5
         assert client.debug is True
+        assert client.debug is True
 
-    def test_init_with_scribe_config(self, sample_config):
-        """Test initializing OllamaClient with a ScribeConfig instance."""
+    def test_init_with_sample_config(self, sample_config):
+        """Test initializing OllamaClient with a different ScribeConfig instance."""
         client = OllamaClient(sample_config)
         
         assert client.base_url == 'http://test-ollama:11434'
@@ -70,7 +84,7 @@ class TestOllamaClient:
     @patch('src.clients.ollama.PromptTemplate')
     def test_prompt_template_initialization(self, mock_prompt_template, sample_config_dict):
         """Test that the PromptTemplate is initialized correctly."""
-        sample_config_dict['template_path'] = 'test/path'
+        sample_config_dict.template_path = 'test/path'
         OllamaClient(sample_config_dict)
         mock_prompt_template.assert_called_once_with('test/path')
 

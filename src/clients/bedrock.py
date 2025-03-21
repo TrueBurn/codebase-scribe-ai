@@ -5,7 +5,7 @@ import logging
 import os
 import traceback
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List
 
 # Third-party imports
 import boto3
@@ -17,7 +17,6 @@ from dotenv import load_dotenv
 from .base_llm import BaseLLMClient
 from .message_manager import MessageManager
 from src.utils.config_class import ScribeConfig
-from src.utils.config_utils import dict_to_config, config_to_dict
 from .llm_utils import (
     format_project_structure,
     find_common_dependencies,
@@ -48,13 +47,12 @@ class BedrockClientError(Exception):
 
 class BedrockClient(BaseLLMClient):
     """Handles all interactions with AWS Bedrock."""
-    
-    def __init__(self, config: Union[Dict[str, Any], ScribeConfig]):
+    def __init__(self, config: ScribeConfig):
         """
         Initialize the BedrockClient with the provided configuration.
         
         Args:
-            config: Configuration (dictionary or ScribeConfig) containing parameters
+            config: Configuration containing parameters
                 - bedrock: Configuration with Bedrock-specific settings
                 - debug: Boolean to enable debug output
                 - template_path: Path to prompt templates
@@ -65,56 +63,22 @@ class BedrockClient(BaseLLMClient):
         # Load environment variables from .env file
         load_dotenv()
         
-        # Convert to ScribeConfig if it's a dictionary
-        if isinstance(config, dict):
-            config_dict = config
-            config_obj = dict_to_config(config)
-        else:
-            config_obj = config
-            config_dict = config_to_dict(config)
-        
-        # Get Bedrock config with defaults
-        if isinstance(config, dict):
-            bedrock_config = config_dict.get('bedrock', {})
-        else:
-            bedrock_config = config_dict.get('bedrock', {})  # Still use dict for compatibility
-        
         # Use environment variables if available, otherwise use config
-        self.region = os.getenv('AWS_REGION') or bedrock_config.get('region', DEFAULT_REGION)
-        
-        # Use environment variable for model_id if available, otherwise use config
-        if isinstance(config, dict):
-            self.model_id = os.getenv('AWS_BEDROCK_MODEL_ID') or bedrock_config.get(
-                'model_id', DEFAULT_MODEL_ID
-            )
-        else:
-            self.model_id = os.getenv('AWS_BEDROCK_MODEL_ID') or config_obj.bedrock.model_id
+        self.region = os.getenv('AWS_REGION') or config.bedrock.region
+        self.model_id = os.getenv('AWS_BEDROCK_MODEL_ID') or config.bedrock.model_id
         
         # Print model ID for debugging
-        if isinstance(config, dict):
-            debug_enabled = config_dict.get('debug', False)
-        else:
-            debug_enabled = config_obj.debug
-            
-        if debug_enabled:
+        if config.debug:
             print(f"Using Bedrock model ID: {self.model_id}")
         
         # Set configuration properties
-        if isinstance(config, dict):
-            self.max_tokens = bedrock_config.get('max_tokens', DEFAULT_MAX_TOKENS)
-            self.retries = bedrock_config.get('retries', DEFAULT_RETRIES)
-            self.retry_delay = bedrock_config.get('retry_delay', DEFAULT_RETRY_DELAY)
-            self.timeout = bedrock_config.get('timeout', DEFAULT_TIMEOUT)
-            self.debug = config_dict.get('debug', False)
-            self.concurrency = bedrock_config.get('concurrency', 1)
-        else:
-            self.max_tokens = config_obj.bedrock.max_tokens
-            self.retries = config_obj.bedrock.retries
-            self.retry_delay = config_obj.bedrock.retry_delay
-            self.timeout = config_obj.bedrock.timeout
-            self.debug = config_obj.debug
-            self.concurrency = config_obj.bedrock.concurrency
-            
+        self.max_tokens = config.bedrock.max_tokens
+        self.retries = config.bedrock.retries
+        self.retry_delay = config.bedrock.retry_delay
+        self.timeout = config.bedrock.timeout
+        self.debug = config.debug
+        self.concurrency = config.bedrock.concurrency
+        
         # Add concurrency support
         self.semaphore = asyncio.Semaphore(self.concurrency)
         
@@ -124,10 +88,7 @@ class BedrockClient(BaseLLMClient):
         if env_verify_ssl is not None:
             self.verify_ssl = env_verify_ssl.lower() != 'false'
         else:
-            if isinstance(config, dict):
-                self.verify_ssl = bedrock_config.get('verify_ssl', True)
-            else:
-                self.verify_ssl = config_obj.bedrock.verify_ssl
+            self.verify_ssl = config.bedrock.verify_ssl
         
         # Set environment variable for tiktoken SSL verification to match our setting
         if not self.verify_ssl:
@@ -137,20 +98,12 @@ class BedrockClient(BaseLLMClient):
         # Initialize Bedrock client
         self.client = self._initialize_bedrock_client()
         
-        # Get template path based on config type
-        if isinstance(config, dict):
-            template_path = config.get('template_path')
-        else:
-            template_path = config_dict.get('template_path')
-            
-        self.prompt_template = PromptTemplate(template_path)
+        # Initialize prompt template
+        # Note: template_path is not in ScribeConfig yet, will need to be added
+        self.prompt_template = PromptTemplate()
         
         # Add temperature setting
-        if isinstance(config, dict):
-            self.temperature = bedrock_config.get('temperature', DEFAULT_TEMPERATURE)
-        else:
-            self.temperature = config_obj.bedrock.temperature
-        self.temperature = bedrock_config.get('temperature', DEFAULT_TEMPERATURE)
+        self.temperature = config.bedrock.temperature
         
     def _initialize_bedrock_client(self) -> boto3.client:
         """

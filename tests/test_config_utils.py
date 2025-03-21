@@ -82,15 +82,10 @@ class TestConfigUtils:
 
     def test_config_to_dict(self, sample_config, sample_config_dict):
         """Test converting ScribeConfig to dictionary."""
-        # Test with ScribeConfig instance
         result = config_to_dict(sample_config)
         assert isinstance(result, dict)
         assert result['debug'] == sample_config_dict['debug']
         assert result['llm_provider'] == sample_config_dict['llm_provider']
-        
-        # Test with dictionary
-        result = config_to_dict(sample_config_dict)
-        assert result is sample_config_dict
 
     def test_dict_to_config(self, sample_config_dict):
         """Test converting dictionary to ScribeConfig."""
@@ -101,21 +96,13 @@ class TestConfigUtils:
         assert config.llm_provider == sample_config_dict['llm_provider']
         assert config.ollama.concurrency == sample_config_dict['ollama']['concurrency']
 
-    def test_get_concurrency(self, sample_config, sample_config_dict):
+    def test_get_concurrency(self, sample_config):
         """Test getting concurrency setting from configuration."""
-        # Test with ScribeConfig instance
+        # Test with ollama provider
         concurrency = get_concurrency(sample_config)
         assert concurrency == 2
         
-        # Test with dictionary
-        concurrency = get_concurrency(sample_config_dict)
-        assert concurrency == 2
-        
-        # Test with different provider
+        # Test with bedrock provider
         sample_config.llm_provider = 'bedrock'
         concurrency = get_concurrency(sample_config)
-        assert concurrency == 5
-        
-        sample_config_dict['llm_provider'] = 'bedrock'
-        concurrency = get_concurrency(sample_config_dict)
         assert concurrency == 5

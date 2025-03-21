@@ -18,18 +18,20 @@ from src.clients.bedrock import BedrockClient, BedrockClientError, BEDROCK_API_V
 @pytest.fixture
 def bedrock_config():
     """Fixture to provide a test configuration for BedrockClient."""
-    return {
-        'bedrock': {
-            'region': 'us-east-1',
-            'model_id': 'test-model-id',
-            'max_tokens': 4096,
-            'timeout': 120,
-            'retries': 3,
-            'retry_delay': 1.0,
-            'temperature': 0
-        },
-        'debug': True
-    }
+    from src.utils.config_class import ScribeConfig, BedrockConfig
+    
+    config = ScribeConfig()
+    config.bedrock = BedrockConfig(
+        region='us-east-1',
+        model_id='test-model-id',
+        max_tokens=4096,
+        timeout=120,
+        retries=3,
+        retry_delay=1.0,
+        temperature=0
+    )
+    config.debug = True
+    return config
 
 
 @pytest.mark.asyncio
@@ -405,7 +407,7 @@ async def test_initialize(bedrock_config):
         assert client.token_counter == mock_token_counter_instance
         
         # Test with debug=True
-        bedrock_config['debug'] = True
+        bedrock_config.debug = True
         client = BedrockClient(bedrock_config)
         mock_validate_credentials.reset_mock()
         

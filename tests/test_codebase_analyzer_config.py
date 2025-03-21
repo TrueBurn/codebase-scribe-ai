@@ -16,22 +16,34 @@ from src.utils.config_class import ScribeConfig
 
 @pytest.fixture
 def sample_config_dict():
-    """Create a sample configuration dictionary."""
-    return {
-        'debug': True,
-        'test_mode': True,
-        'no_cache': True,
-        'blacklist': {
-            'extensions': ['.log', '.tmp'],
-            'path_patterns': ['/node_modules/', '/__pycache__/']
-        }
-    }
+    """Create a sample configuration object."""
+    from src.utils.config_class import ScribeConfig, BlacklistConfig
+    
+    config = ScribeConfig()
+    config.debug = True
+    config.test_mode = True
+    config.no_cache = True
+    config.blacklist = BlacklistConfig(
+        extensions=['.log', '.tmp'],
+        path_patterns=['/node_modules/', '/__pycache__/']
+    )
+    return config
 
 
 @pytest.fixture
-def sample_config(sample_config_dict):
+def sample_config():
     """Create a sample ScribeConfig instance."""
-    return ScribeConfig.from_dict(sample_config_dict)
+    from src.utils.config_class import ScribeConfig, BlacklistConfig
+    
+    config = ScribeConfig()
+    config.debug = True
+    config.test_mode = True
+    config.no_cache = True
+    config.blacklist = BlacklistConfig(
+        extensions=['.log', '.tmp'],
+        path_patterns=['/node_modules/', '/__pycache__/']
+    )
+    return config
 
 
 @pytest.fixture
@@ -72,8 +84,8 @@ def temp_repo_path():
 class TestCodebaseAnalyzer:
     """Test suite for CodebaseAnalyzer with ScribeConfig."""
 
-    def test_init_with_dict(self, sample_config_dict, temp_repo_path):
-        """Test initializing CodebaseAnalyzer with a dictionary."""
+    def test_init_with_scribe_config(self, sample_config_dict, temp_repo_path):
+        """Test initializing CodebaseAnalyzer with a ScribeConfig object."""
         analyzer = CodebaseAnalyzer(temp_repo_path, sample_config_dict)
         
         assert analyzer.debug is True

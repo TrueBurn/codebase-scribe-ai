@@ -58,17 +58,19 @@ class TestIntegration:
     @pytest.fixture
     def config(self):
         """Test configuration."""
-        return {
-            'debug': True,
-            'blacklist': {
-                'extensions': ['.pyc', '.pyo', '.pyd'],
-                'path_patterns': [r'__pycache__', r'\.git']
-            },
-            'cache': {
-                'ttl': 3600,
-                'max_size': 1048576
-            }
-        }
+        from src.utils.config_class import ScribeConfig, BlacklistConfig, CacheConfig
+        
+        config = ScribeConfig()
+        config.debug = True
+        config.blacklist = BlacklistConfig(
+            extensions=['.pyc', '.pyo', '.pyd'],
+            path_patterns=[r'__pycache__', r'\.git']
+        )
+        config.cache = CacheConfig(
+            ttl=3600,
+            max_size=1048576
+        )
+        return config
     
     def test_analyzer_with_cache(self, temp_repo, config):
         """Test that the analyzer works with the cache manager."""

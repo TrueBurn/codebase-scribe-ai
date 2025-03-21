@@ -2,7 +2,6 @@ import os
 import sys
 import pytest
 from pathlib import Path
-from src.utils.config import ConfigManager
 
 def pytest_configure(config):
     """Create cache directory with proper permissions before tests run."""
@@ -57,20 +56,22 @@ def test_repo():
 @pytest.fixture
 def config():
     """Fixture providing test configuration"""
-    return {
-        'ollama': {
-            'model': 'codellama',
-            'base_url': 'http://localhost:11434',
-            'max_tokens': 4096,
-            'retries': 3,
-            'retry_delay': 1.0,
-            'timeout': 30
-        },
-        'cache': {
-            'ttl': 3600,
-            'max_size': 104857600
-        }
-    }
+    from src.utils.config_class import ScribeConfig, OllamaConfig, CacheConfig
+    
+    config = ScribeConfig()
+    config.ollama = OllamaConfig(
+        model='codellama',
+        base_url='http://localhost:11434',
+        max_tokens=4096,
+        retries=3,
+        retry_delay=1.0,
+        timeout=30
+    )
+    config.cache = CacheConfig(
+        ttl=3600,
+        max_size=104857600
+    )
+    return config
 
 @pytest.fixture(autouse=True)
 def setup_test_env(tmp_path):

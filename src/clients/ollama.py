@@ -3,7 +3,7 @@ import asyncio
 import logging
 import traceback
 from pathlib import Path
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List
 
 # Third-party imports
 import httpx
@@ -14,7 +14,6 @@ from pydantic import BaseModel
 from .base_llm import BaseLLMClient
 from .message_manager import MessageManager
 from src.utils.config_class import ScribeConfig
-from src.utils.config_utils import dict_to_config, config_to_dict
 from .llm_utils import (
     format_project_structure,
     find_common_dependencies,
@@ -64,53 +63,36 @@ class OllamaClient(BaseLLMClient):
         project_structure (str): String representation of project structure
     """
     
-    def __init__(self, config: Union[Dict[str, Any], ScribeConfig]):
+    def __init__(self, config: ScribeConfig):
         """
         Initialize the Ollama client.
         
         Args:
-            config: Configuration (dictionary or ScribeConfig) with Ollama-specific settings
+            config: Configuration with Ollama-specific settings
         """
         # Call parent class constructor
         super().__init__()
         
-        # Convert to ScribeConfig if it's a dictionary
-        if isinstance(config, dict):
-            config_dict = config
-            config_obj = dict_to_config(config)
-        else:
-            config_obj = config
-            config_dict = config_to_dict(config)
+        # Get Ollama config from ScribeConfig
+        self.base_url = config.ollama.base_url
+        self.max_tokens = config.ollama.max_tokens
+        self.retries = config.ollama.retries
+        self.retry_delay = config.ollama.retry_delay
+        self.timeout = config.ollama.timeout
+        self.temperature = config.ollama.temperature
+        self.debug = config.debug
         
-        # Get Ollama config with defaults
-        if isinstance(config, dict):
-            ollama_config = config_dict.get('ollama', {})
-            self.base_url = ollama_config.get('base_url', DEFAULT_BASE_URL)
-            self.max_tokens = ollama_config.get('max_tokens', DEFAULT_MAX_TOKENS)
-            self.retries = ollama_config.get('retries', DEFAULT_RETRIES)
-            self.retry_delay = ollama_config.get('retry_delay', DEFAULT_RETRY_DELAY)
+        # Initialize Ollama client
+        self.client = AsyncClient(host=self.base_url)
+        # Initialize prompt template
+        if hasattr(config, 'template_path') and config.template_path:
+            self.prompt_template = PromptTemplate(config.template_path)
         else:
-            self.base_url = config_obj.ollama.base_url
-            self.max_tokens = config_obj.ollama.max_tokens
-            self.retries = config_obj.ollama.retries
-            self.retry_delay = config_obj.ollama.retry_delay
-        # Set remaining properties
-        if isinstance(config, dict):
-            ollama_config = config_dict.get('ollama', {})
-            self.timeout = ollama_config.get('timeout', DEFAULT_TIMEOUT)
-            self.temperature = ollama_config.get('temperature', DEFAULT_TEMPERATURE)
-            self.client = AsyncClient(host=self.base_url)
-            self.prompt_template = PromptTemplate(config_dict.get('template_path'))
-        else:
-            self.timeout = config_obj.ollama.timeout
-            self.temperature = config_obj.ollama.temperature
-            self.client = AsyncClient(host=self.base_url)
-            self.prompt_template = PromptTemplate(config_dict.get('template_path'))
-        if isinstance(config, dict):
-            self.debug = config_dict.get('debug', False)
-        else:
-            self.debug = config_obj.debug
+            self.prompt_template = PromptTemplate()
+        
+        # Initialize model-related attributes
         self.available_models = []
+        self.selected_model = None
         self.selected_model = None
     
     async def initialize(self) -> None:
