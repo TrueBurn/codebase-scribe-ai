@@ -1,3 +1,4 @@
+
 #!/usr/bin/env python3
 
 # Standard library imports
@@ -27,7 +28,7 @@ from src.models.file_info import FileInfo
 from src.utils.badges import generate_badges
 from src.utils.cache import CacheManager
 from src.utils.cache_utils import display_cache_stats, display_github_cache_stats
-from src.utils.config_utils import load_config, update_config_with_args, config_to_dict
+from src.utils.config_utils import load_config, update_config_with_args, config_to_dict, dict_to_config
 from src.utils.config_class import ScribeConfig
 from src.utils.doc_utils import add_ai_attribution
 from src.utils.exceptions import (
@@ -65,14 +66,30 @@ warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWar
 # Disable bytecode caching
 sys.dont_write_bytecode = True
 
-def setup_logging(debug: bool = False, log_to_file: bool = True) -> None:
+def setup_logging(debug: bool = False, log_to_file: bool = True, quiet: bool = False) -> None:
     """Configure logging based on debug flag.
     
     Args:
         debug: If True, sets logging level to DEBUG, otherwise INFO
         log_to_file: If True, logs to both file and console, otherwise just console
+        quiet: If True, reduces console output verbosity
     """
-    log_level = logging.DEBUG if debug else logging.INFO
+    # Set file logging level based on debug flag
+    file_log_level = logging.DEBUG if debug else logging.INFO
+    
+    # Set console logging level based on quiet flag
+    if quiet:
+        console_log_level = logging.WARNING  # Only warnings and errors to console
+    else:
+        console_log_level = logging.DEBUG if debug else logging.INFO
+    
+    # Get the root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)  # Allow all logs to be processed
+    
+    # Remove any existing handlers
+    for handler in root_logger.handlers[:]:
+        root_logger.removeHandler(handler)
     
     # Create logs directory if it doesn't exist
     if log_to_file:
@@ -83,23 +100,22 @@ def setup_logging(debug: bool = False, log_to_file: bool = True) -> None:
         timestamp = time.strftime("%Y%m%d-%H%M%S")
         log_file = log_dir / f"readme_generator_{timestamp}.log"
         
-        # Configure logging to file and console
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler(log_file),
-                logging.StreamHandler()
-            ]
-        )
+        # Add file handler with appropriate level
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(file_log_level)
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+        root_logger.addHandler(file_handler)
         
-        logging.info(f"Debug logging enabled. Log file: {log_file}")
-    else:
-        # Configure logging to console only
-        logging.basicConfig(
-            level=log_level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-        )
+        logging.info(f"Logging to file: {log_file}")
+    
+    # Add console handler with appropriate level
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(console_log_level)
+    console_handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+    root_logger.addHandler(console_handler)
+    
+    if debug:
+        logging.debug("Debug logging enabled")
 
 # Function moved: process_file is now a nested function within process_files
 # Function removed: calculate_max_concurrent was unused
@@ -423,6 +439,8 @@ async def main():
     parser.add_argument('--config', '-c', default='config.yaml', help='Configuration file path')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
     parser.add_argument('--log-file', action='store_true', help='Log debug output to file')
+    parser.add_argument('--quiet', '-q', action='store_true',
+                      help='Reduce console output verbosity (only warnings and errors)')
     parser.add_argument('--test-mode', action='store_true', 
                        help='Enable test mode (process only first 5 files)')
     parser.add_argument('--no-cache', action='store_true',
@@ -435,8 +453,8 @@ async def main():
                        help='LLM provider to use (overrides config file)')
     args = parser.parse_args()
 
-    # Set up logging based on debug flag
-    setup_logging(debug=args.debug, log_to_file=args.log_file)
+    # Set up logging based on debug flag and quiet mode
+    setup_logging(debug=args.debug, log_to_file=args.log_file, quiet=args.quiet)
     
     # Load config and update with command-line args
     config = load_config(args.config)
@@ -522,6 +540,9 @@ async def main():
             analyzer.cache.clear_repo_cache()
             print(f"Cleared cache for repository: {repo_path.name}")
             
+            # Close the cache connections before clearing all caches
+            analyzer.cache.close()
+            
             # Also clear the global cache for this repository
             CacheManager.clear_all_caches(repo_path=repo_path, config=config_dict)
             
@@ -545,7 +566,7 @@ async def main():
         
         # First analyze repository to get file manifest
         print("Analyzing repository structure...")
-        manifest = await analyzer.analyze_repository(show_progress=True)  # Enable progress bar
+        manifest = analyzer.analyze_repository(show_progress=True)  # Enable progress bar
         
         if not manifest:
             print("No files found to analyze!")
@@ -554,7 +575,7 @@ async def main():
         print(f"\nFound {len(manifest)} files to analyze")
         
         # Set project structure and get processing order
-        llm_client.set_project_structure(manifest)
+        llm_client.set_project_structure_from_manifest(manifest)
         processing_order = None
         if config.optimize_order:
             print("Determining optimal file processing order...")
@@ -707,6 +728,17 @@ async def main():
         if temp_dir and not args.keep_clone and not (create_pr and args.keep_clone):
             print(f"Cleaning up temporary repository: {temp_dir}")
             try:
+                # Close any open database connections
+                if hasattr(analyzer, 'cache'):
+                    analyzer.cache.close()
+                
+                # Force garbage collection to release any file handles
+                import gc
+                gc.collect()
+                
+                # Add a small delay to allow processes to release file handles
+                time.sleep(1)
+                
                 def make_writable(path):
                     """Make a file or directory writable."""
                     try:
@@ -728,13 +760,35 @@ async def main():
                 # If directory still exists, try platform-specific commands as a last resort
                 if os.path.exists(temp_dir):
                     print(f"Standard cleanup failed, trying alternative method...")
+                    
+                    # Add another delay
+                    time.sleep(2)
+                    
                     if os.name == 'nt':  # Windows
+                        # Try to close any open handles using Windows-specific commands
+                        try:
+                            # This will only work if the handle utility is available
+                            os.system(f'handle -c "{temp_dir}" > nul 2>&1')
+                        except:
+                            pass
+                            
+                        # Try to force delete
                         os.system(f'rmdir /S /Q "{temp_dir}"')
+                        
+                        # If still exists, schedule for deletion on reboot
+                        if os.path.exists(temp_dir):
+                            print(f"Could not delete directory immediately, scheduling for deletion on next reboot")
+                            os.system(f'rd /s /q "{temp_dir}" > nul 2>&1')
                     else:  # Unix/Linux/Mac
                         os.system(f'rm -rf "{temp_dir}"')
             except Exception as e:
                 print(f"Warning: Could not fully clean up temporary directory: {e}")
                 print(f"You may need to manually delete: {temp_dir}")
+                
+            # Final message if directory still exists
+            if os.path.exists(temp_dir):
+                print(f"Note: The temporary directory {temp_dir} could not be fully deleted.")
+                print(f"You may need to manually delete it after closing any programs that might be using files in it.")
 
 if __name__ == "__main__":
     asyncio.run(main())

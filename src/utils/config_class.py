@@ -22,10 +22,10 @@ class CacheConfig:
     enabled: bool = True
     ttl: int = 3600  # Time to live in seconds
     max_size: int = 1048576  # Max cache size in bytes
-    location: str = "repo"  # Cache location ('repo' or 'home')
-    directory: str = ".test_cache"  # Cache directory name
-    global_directory: str = ".test_global_cache"  # Global cache directory name
-    hash_algorithm: str = "sha256"  # Hash algorithm for file content hashing
+    location: str = "home"  # Cache location ('repo' or 'home')
+    directory: str = ".cache"  # Cache directory name
+    global_directory: str = "readme_generator_cache"  # Global cache directory name (no dot to make it visible)
+    hash_algorithm: str = "md5"  # Hash algorithm for file content hashing
 
 
 @dataclass
@@ -94,6 +94,11 @@ class ScribeConfig:
         Returns:
             A ScribeConfig instance
         """
+        import logging
+        
+        # Debug logging
+        logging.debug(f"Creating ScribeConfig from dictionary")
+        
         config = cls()
         
         # Set general settings
@@ -114,11 +119,23 @@ class ScribeConfig:
         # Set cache settings
         if 'cache' in config_dict:
             cache_dict = config_dict['cache']
+            
+            # Debug logging
+            logging.debug(f"Cache dictionary: {cache_dict}")
+            logging.debug(f"Cache location from dictionary: {cache_dict.get('location', 'default')}")
+            
             config.cache = CacheConfig(
                 enabled=not config.no_cache,
                 ttl=cache_dict.get('ttl', 3600),
-                max_size=cache_dict.get('max_size', 1048576)
+                max_size=cache_dict.get('max_size', 1048576),
+                location=cache_dict.get('location', 'home'),
+                directory=cache_dict.get('directory', '.cache'),
+                global_directory=cache_dict.get('global_directory', 'readme_generator_cache'),
+                hash_algorithm=cache_dict.get('hash_algorithm', 'md5')
             )
+            
+            # Debug logging
+            logging.debug(f"Created CacheConfig with location: {config.cache.location}")
         
         # Set LLM provider settings
         config.llm_provider = config_dict.get('llm_provider', 'ollama')
@@ -164,7 +181,11 @@ class ScribeConfig:
             'cache': {
                 'enabled': self.cache.enabled,
                 'ttl': self.cache.ttl,
-                'max_size': self.cache.max_size
+                'max_size': self.cache.max_size,
+                'location': self.cache.location,
+                'directory': self.cache.directory,
+                'global_directory': self.cache.global_directory,
+                'hash_algorithm': self.cache.hash_algorithm
             },
             'llm_provider': self.llm_provider,
             'ollama': {

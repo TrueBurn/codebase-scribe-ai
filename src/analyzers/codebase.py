@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 # Local imports
 from ..models.file_info import FileInfo
-from ..utils.cache import CacheManager
+from ..utils.cache import CacheManager  # Use the standard cache module
 from ..utils.progress import ProgressTracker
 from ..utils.config_class import ScribeConfig
 from ..utils.config_utils import dict_to_config, config_to_dict
@@ -339,7 +339,7 @@ class CodebaseAnalyzer:
                 if self.debug:
                     logging.debug(f"Test mode enabled, limiting to {len(all_files)} files")
             
-            # Show progress if requested
+            # Process files with or without progress bar
             if show_progress:
                 try:
                     # Get or create the progress tracker instance
@@ -349,34 +349,75 @@ class CodebaseAnalyzer:
                         total=len(all_files),
                         unit="files"
                     ) as pbar:
-                        iterator = pbar
+                        # Process each file with progress bar
+                        for file_path in all_files:
+                            try:
+                                rel_path = file_path.relative_to(self.repo_path)
+                                
+                                # Skip files that should not be included
+                                if not self.should_include_file(rel_path):
+                                    continue
+                                    
+                                # Analyze file
+                                file_info = self._analyze_file(file_path)
+                                
+                                # Add to manifest
+                                self.file_manifest[str(rel_path)] = file_info
+                                
+                                # Update progress bar
+                                pbar.update(1)
+                            except Exception as e:
+                                # Log error but continue processing other files
+                                logging.error(f"Error processing file {file_path}: {e}")
+                                if self.debug:
+                                    import traceback
+                                    logging.debug(traceback.format_exc())
+                                # Still update progress bar
+                                pbar.update(1)
                 except Exception as e:
                     # Fall back to regular iteration if progress bar fails
                     logging.warning(f"Failed to create progress bar: {e}")
-                    iterator = all_files
+                    # Process each file without progress bar
+                    for file_path in all_files:
+                        try:
+                            rel_path = file_path.relative_to(self.repo_path)
+                            
+                            # Skip files that should not be included
+                            if not self.should_include_file(rel_path):
+                                continue
+                                
+                            # Analyze file
+                            file_info = self._analyze_file(file_path)
+                            
+                            # Add to manifest
+                            self.file_manifest[str(rel_path)] = file_info
+                        except Exception as e:
+                            # Log error but continue processing other files
+                            logging.error(f"Error processing file {file_path}: {e}")
+                            if self.debug:
+                                import traceback
+                                logging.debug(traceback.format_exc())
             else:
-                iterator = all_files
-                
-            # Process each file
-            for file_path in iterator:
-                try:
-                    rel_path = file_path.relative_to(self.repo_path)
-                    
-                    # Skip files that should not be included
-                    if not self.should_include_file(rel_path):
-                        continue
+                # Process each file without progress bar
+                for file_path in all_files:
+                    try:
+                        rel_path = file_path.relative_to(self.repo_path)
                         
-                    # Analyze file
-                    file_info = self._analyze_file(file_path)
-                    
-                    # Add to manifest
-                    self.file_manifest[str(rel_path)] = file_info
-                except Exception as e:
-                    # Log error but continue processing other files
-                    logging.error(f"Error processing file {file_path}: {e}")
-                    if self.debug:
-                        import traceback
-                        logging.debug(traceback.format_exc())
+                        # Skip files that should not be included
+                        if not self.should_include_file(rel_path):
+                            continue
+                            
+                        # Analyze file
+                        file_info = self._analyze_file(file_path)
+                        
+                        # Add to manifest
+                        self.file_manifest[str(rel_path)] = file_info
+                    except Exception as e:
+                        # Log error but continue processing other files
+                        logging.error(f"Error processing file {file_path}: {e}")
+                        if self.debug:
+                            import traceback
+                            logging.debug(traceback.format_exc())
                 
             if self.debug:
                 logging.debug(f"Analyzed {len(self.file_manifest)} files")

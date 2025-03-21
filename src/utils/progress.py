@@ -134,16 +134,31 @@ class ProgressTracker:
         
         # Only set up handlers if they don't exist
         if not self.logger.handlers:
+            # Create file handler with INFO level
             file_handler = logging.FileHandler(self.log_file)
-            console_handler = logging.StreamHandler(sys.stdout)
-            
-            formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-            file_handler.setFormatter(formatter)
-            console_handler.setFormatter(formatter)
-            
+            file_handler.setLevel(logging.INFO)
+            file_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+            file_handler.setFormatter(file_formatter)
             self.logger.addHandler(file_handler)
+            
+            # Create console handler that respects the root logger's level
+            # This ensures it follows the --quiet flag setting
+            console_handler = logging.StreamHandler(sys.stdout)
+            # Get the root logger's level for console output
+            root_console_level = logging.WARNING
+            for handler in logging.getLogger().handlers:
+                if isinstance(handler, logging.StreamHandler):
+                    root_console_level = handler.level
+                    break
+            
+            console_handler.setLevel(root_console_level)
+            console_formatter = logging.Formatter('%(levelname)s - %(message)s')
+            console_handler.setFormatter(console_formatter)
             self.logger.addHandler(console_handler)
-            self.logger.setLevel(logging.INFO)
+            
+            # Set the logger's level to DEBUG to allow all messages to be processed
+            # The handlers will filter based on their individual levels
+            self.logger.setLevel(logging.DEBUG)
         
         # Main progress bar for overall progress
         self.main_pbar = tqdm(

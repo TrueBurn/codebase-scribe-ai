@@ -27,8 +27,21 @@ def load_config(config_path: Union[str, Path]) -> ScribeConfig:
     # Load the config as a dictionary first
     config_dict = load_config_dict(str(config_path))
     
+    # Debug logging
+    import logging
+    logging.debug(f"Loaded config from {config_path}")
+    if 'cache' in config_dict:
+        logging.debug(f"Cache config: {config_dict['cache']}")
+        logging.debug(f"Cache location: {config_dict['cache'].get('location', 'default')}")
+    
     # Convert to ScribeConfig
-    return ScribeConfig.from_dict(config_dict)
+    config = ScribeConfig.from_dict(config_dict)
+    
+    # Debug logging
+    if hasattr(config, 'cache'):
+        logging.debug(f"ScribeConfig cache location: {config.cache.location}")
+    
+    return config
 
 def update_config_with_args(config: Union[Dict[str, Any], ScribeConfig], args: Any) -> ScribeConfig:
     """
@@ -41,11 +54,23 @@ def update_config_with_args(config: Union[Dict[str, Any], ScribeConfig], args: A
     Returns:
         Updated ScribeConfig instance
     """
+    import logging
+    
+    # Debug logging
+    logging.debug(f"Updating config with args")
+    
     # Create a dictionary from the current config
     if isinstance(config, dict):
         config_dict = config
+        logging.debug(f"Config is a dictionary")
     else:
         config_dict = config.to_dict()
+        logging.debug(f"Config is a ScribeConfig instance")
+    
+    # Debug logging
+    if 'cache' in config_dict:
+        logging.debug(f"Before update - Cache config: {config_dict['cache']}")
+        logging.debug(f"Before update - Cache location: {config_dict['cache'].get('location', 'default')}")
     
     # Update with command-line arguments
     if hasattr(args, 'debug'):
@@ -63,8 +88,19 @@ def update_config_with_args(config: Union[Dict[str, Any], ScribeConfig], args: A
     if hasattr(args, 'llm_provider') and args.llm_provider:
         config_dict['llm_provider'] = args.llm_provider
     
+    # Debug logging
+    if 'cache' in config_dict:
+        logging.debug(f"After update - Cache config: {config_dict['cache']}")
+        logging.debug(f"After update - Cache location: {config_dict['cache'].get('location', 'default')}")
+    
     # Convert back to ScribeConfig
-    return ScribeConfig.from_dict(config_dict)
+    config = ScribeConfig.from_dict(config_dict)
+    
+    # Debug logging
+    if hasattr(config, 'cache'):
+        logging.debug(f"After conversion - ScribeConfig cache location: {config.cache.location}")
+    
+    return config
 
 
 def config_to_dict(config: Union[ScribeConfig, Dict[str, Any]]) -> Dict[str, Any]:

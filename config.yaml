@@ -27,7 +27,7 @@ cache:
   directory: ".cache" # Directory to store cache files
   location: "home" # Where to store the cache: "repo" (in target repository) or "home" (in user's home directory)
   hash_algorithm: "md5" # Hash algorithm to use for file content hashing (md5, sha1, or sha256)
-  global_directory: ".readme_generator_cache" # Directory name for global cache when location is "home"
+  global_directory: "readme_generator_cache" # Directory name for global cache when location is "home" (removed dot to make it visible)
 
 # Processing options
 optimize_order: false # Set to true to use LLM for determining optimal file processing order
