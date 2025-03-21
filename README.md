@@ -549,6 +549,7 @@ While the cache is generally committed to the repository, certain directories ar
 ### Planned
 - 📝 **Split Usage Guide**: Move the usage guide to a separate file with its own generator.
 - 🔗 **Improve Documentation Links**: Ensure generated README properly links to all other documentation files.
+- 🔄 **GitHub Workflows**: Add GitHub Actions workflows for CI/CD, automated testing, and code quality checks.
 - 🧪 **Improve Test Coverage**: Add more unit tests for the core functionality.
 - 🚀 **Performance Optimization**: Optimize the file processing pipeline for better performance.
 - 🗑️ **Fix Lingering Folders**: Clean up lingering temporary folders in home directory when pulling from GitHub.
