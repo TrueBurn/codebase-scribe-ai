@@ -191,7 +191,7 @@ async def test_process_files(temp_repo, config):
         mock_analyzer.cache.is_file_changed.return_value = True
         mock_analyzer.read_file = MagicMock(return_value="Test content")
         mock_analyzer.get_file_language = MagicMock(side_effect=lambda path: "markdown" if path.name == "README.md" else "python")
-        mock_analyzer.get_repository_files = MagicMock(return_value=file_list)
+        mock_analyzer._get_repository_files = MagicMock(return_value=file_list)
         mock_analyzer_class.return_value = mock_analyzer
         
         # Patch the nested process_file function

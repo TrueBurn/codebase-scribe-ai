@@ -448,12 +448,13 @@ def create_git_branch(repo_dir: Path, branch_name: str) -> bool:
     except Exception as e:
         logging.error(f"Error creating branch: {str(e)}")
         raise GitOperationError(f"Failed to create or checkout branch '{branch_name}': {str(e)}") from e
-
-def commit_documentation_changes(repo_dir: Path, message: str = "Add generated documentation") -> bool:
+def commit_documentation_changes(repo_dir: Path, files: list = None, message: str = "Add generated documentation") -> bool:
     """Commit documentation changes to the repository.
     
     Args:
         repo_dir: Path to the repository
+        files: List of files to commit (optional)
+        message: Commit message
         message: Commit message
         
     Returns:
@@ -468,19 +469,38 @@ def commit_documentation_changes(repo_dir: Path, message: str = "Add generated d
         # Open the repository
         repo = git.Repo(repo_dir)
         
-        # Add README.md and docs/ARCHITECTURE.md
-        repo.git.add("README.md")
-        logging.debug("Added README.md to git index")
-        
-        # Ensure docs directory exists before adding
-        docs_dir = repo_dir / "docs"
-        arch_file = docs_dir / "ARCHITECTURE.md"
-        
-        if arch_file.exists():
-            repo.git.add("docs/ARCHITECTURE.md")
-            logging.debug("Added docs/ARCHITECTURE.md to git index")
+        # Add files to the index
+        if files:
+            for file_path in files:
+                # Convert to relative path if needed
+                if isinstance(file_path, Path):
+                    try:
+                        # Get relative path from repo_dir to file_path
+                        rel_path = file_path.relative_to(repo_dir)
+                        repo.git.add(str(rel_path))
+                        logging.debug(f"Added {rel_path} to git index")
+                    except ValueError:
+                        # If file_path is not relative to repo_dir, use it as is
+                        repo.git.add(str(file_path))
+                        logging.debug(f"Added {file_path} to git index")
+                else:
+                    # If it's already a string, use it directly
+                    repo.git.add(file_path)
+                    logging.debug(f"Added {file_path} to git index")
         else:
-            logging.debug("Architecture file not found, skipping")
+            # Default behavior: add README.md and docs/ARCHITECTURE.md
+            repo.git.add("README.md")
+            logging.debug("Added README.md to git index")
+            
+            # Ensure docs directory exists before adding
+            docs_dir = repo_dir / "docs"
+            arch_file = docs_dir / "ARCHITECTURE.md"
+            
+            if arch_file.exists():
+                repo.git.add("docs/ARCHITECTURE.md")
+                logging.debug("Added docs/ARCHITECTURE.md to git index")
+            else:
+                logging.debug("Architecture file not found, skipping")
         
         # Check if there are changes to be committed
         if not repo.index.diff("HEAD") and not repo.untracked_files:

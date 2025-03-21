@@ -217,15 +217,28 @@ class BedrockClient(BaseLLMClient):
         jitter=True,
         exceptions=(ConnectionError, TimeoutError),
     )
-    async def generate_summary(self, prompt: str) -> Optional[str]:
-        """Generate a summary for a file's content."""
+    async def generate_summary(self, content: str, file_type: str = "text", file_path: str = None) -> Optional[str]:
+        """Generate a summary for a file's content.
+        
+        Args:
+            content: The content of the file to summarize
+            file_type: The type/language of the file (default: "text")
+            file_path: The path to the file (default: None)
+            
+        Returns:
+            Optional[str]: The generated summary or None if an error occurred
+        """
         async with self.semaphore:  # Use semaphore to control concurrency
             try:
+                # Create a prompt that includes file information
+                file_info = f"File: {file_path}\nType: {file_type}\n\n" if file_path else ""
+                prompt = f"{file_info}{content}"
+                
                 messages = MessageManager.get_file_summary_messages(prompt)
                 
                 # Use the new token-aware invocation method
-                content = await self._invoke_model_with_token_management(messages)
-                return content
+                summary = await self._invoke_model_with_token_management(messages)
+                return summary
                 
             except Exception as e:
                 logging.error(f"Error generating summary: {e}")
@@ -333,7 +346,10 @@ class BedrockClient(BaseLLMClient):
     def _derive_project_name(self, file_manifest: dict) -> str:
         """Derive project name from repository structure."""
         # Create a temporary analyzer instance to use its method
-        temp_analyzer = CodebaseAnalyzer(Path("."), {"debug": self.debug})
+        from src.utils.config_class import ScribeConfig
+        config = ScribeConfig()
+        config.debug = self.debug
+        temp_analyzer = CodebaseAnalyzer(Path("."), config)
         temp_analyzer.file_manifest = file_manifest
         return temp_analyzer.derive_project_name(self.debug)
     
@@ -839,7 +855,7 @@ class BedrockClient(BaseLLMClient):
             if self.token_counter:
                 total_tokens = self.token_counter.count_tokens(combined_content)
                 model_limit = self.token_counter.get_token_limit(self.model_id)
-                logging.info(f"Request content: {total_tokens} tokens (model limit: {model_limit})")
+                logging.debug(f"Request content: {total_tokens} tokens (model limit: {model_limit})")
                 
                 # If we're over the limit, truncate
                 if total_tokens > model_limit:
@@ -863,7 +879,7 @@ class BedrockClient(BaseLLMClient):
                 
                 # Log final token count
                 final_tokens = self.token_counter.count_tokens(combined_content)
-                logging.info(f"Final combined content: {final_tokens} tokens")
+                logging.debug(f"Final combined content: {final_tokens} tokens")
             
             # Create proper Bedrock format
             bedrock_messages = [
@@ -884,7 +900,7 @@ class BedrockClient(BaseLLMClient):
                 "temperature": self.temperature
             })
             
-            logging.info(f"Request body size: {len(request_body)} bytes")
+            logging.debug(f"Request body size: {len(request_body)} bytes")
             
             # Invoke model with timeout
             try:

@@ -217,20 +217,21 @@ class CacheManager:
             if self.debug:
                 print("Warning: No repository path provided, using default cache directory")
             return self.cache_dir
-            # Use the cache location that was set in the constructor
-            if hasattr(self, 'cache_location'):
-                cache_location = self.cache_location
-            else:
-                cache_location = 'repo'  # Default
+        
+        # Use the cache location that was set in the constructor
+        if hasattr(self, 'cache_location'):
+            cache_location = self.cache_location
+        else:
+            cache_location = 'repo'  # Default
+        
+        if self.debug:
+            print(f"Cache location: {cache_location}")
             
-            if self.debug:
-                print(f"Cache location: {cache_location}")
-                
-            # Always use home directory if cache_location is 'home'
-            if cache_location == 'home':
-                # Use the global cache directory that was set in the constructor
-                global_cache_dir = self.global_cache_dir if hasattr(self, 'global_cache_dir') else self.DEFAULT_GLOBAL_CACHE_DIR
-            global_cache_dir = self.DEFAULT_GLOBAL_CACHE_DIR
+        # Handle based on cache location
+        if cache_location == 'home':
+            # Use home directory for cache
+            # Use the global cache directory that was set in the constructor
+            global_cache_dir = self.global_cache_dir if hasattr(self, 'global_cache_dir') else self.DEFAULT_GLOBAL_CACHE_DIR
             
             # Create the home directory cache path
             home_cache_dir = Path.home() / global_cache_dir

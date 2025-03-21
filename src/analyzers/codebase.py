@@ -540,7 +540,148 @@ class CodebaseAnalyzer:
             matches = re.finditer(pattern, content, re.MULTILINE)
             deps.update(match.group(1) for match in matches)
         
-        return deps 
+        return deps
+        
+    def read_file(self, file_path: Path) -> str:
+        """Read file content with proper encoding handling.
+        
+        Args:
+            file_path: Path to the file to read
+            
+        Returns:
+            str: Content of the file
+            
+        Raises:
+            UnicodeDecodeError: If the file cannot be decoded as UTF-8
+            FileNotFoundError: If the file does not exist
+            PermissionError: If the file cannot be read due to permissions
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            # Try with a different encoding if UTF-8 fails
+            try:
+                with open(file_path, 'r', encoding='latin-1') as f:
+                    return f.read()
+            except Exception as e:
+                if self.debug:
+                    logging.error(f"Error reading file {file_path} with latin-1 encoding: {e}")
+                raise
+        except Exception as e:
+            if self.debug:
+                logging.error(f"Error reading file {file_path}: {e}")
+            raise
+            
+    def get_file_language(self, file_path: Path) -> str:
+        """Determine the programming language of a file based on its extension.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            str: Language name (lowercase) or 'text' if unknown
+        """
+        # Extension to language mapping
+        extension_map = {
+            # Python
+            '.py': 'python',
+            '.pyw': 'python',
+            '.pyx': 'python',
+            
+            # JavaScript
+            '.js': 'javascript',
+            '.jsx': 'javascript',
+            '.mjs': 'javascript',
+            
+            # TypeScript
+            '.ts': 'typescript',
+            '.tsx': 'typescript',
+            
+            # Web
+            '.html': 'html',
+            '.htm': 'html',
+            '.css': 'css',
+            '.scss': 'scss',
+            '.sass': 'sass',
+            '.less': 'less',
+            
+            # Java
+            '.java': 'java',
+            '.class': 'java',
+            '.jar': 'java',
+            
+            # C#
+            '.cs': 'csharp',
+            '.csx': 'csharp',
+            
+            # C/C++
+            '.c': 'c',
+            '.cpp': 'cpp',
+            '.cc': 'cpp',
+            '.h': 'c',
+            '.hpp': 'cpp',
+            
+            # Ruby
+            '.rb': 'ruby',
+            '.erb': 'ruby',
+            
+            # PHP
+            '.php': 'php',
+            
+            # Go
+            '.go': 'go',
+            
+            # Rust
+            '.rs': 'rust',
+            
+            # Swift
+            '.swift': 'swift',
+            
+            # Shell
+            '.sh': 'shell',
+            '.bash': 'shell',
+            '.zsh': 'shell',
+            
+            # Markdown
+            '.md': 'markdown',
+            '.markdown': 'markdown',
+            
+            # JSON
+            '.json': 'json',
+            
+            # YAML
+            '.yml': 'yaml',
+            '.yaml': 'yaml',
+            
+            # XML
+            '.xml': 'xml',
+            '.pom': 'xml',
+            
+            # SQL
+            '.sql': 'sql',
+            
+            # Docker
+            'Dockerfile': 'dockerfile',
+            '.dockerfile': 'dockerfile',
+            
+            # Configuration
+            '.ini': 'ini',
+            '.cfg': 'ini',
+            '.conf': 'ini',
+            '.properties': 'properties',
+            '.toml': 'toml',
+        }
+        
+        # Check if the file is a special case like Dockerfile
+        if file_path.name in extension_map:
+            return extension_map[file_path.name]
+            
+        # Get the file extension (lowercase)
+        ext = file_path.suffix.lower()
+        
+        # Return the language based on extension, or 'text' if unknown
+        return extension_map.get(ext, 'text')
 
     def check_markdown_headers(self, content: str) -> list[str]:
         """Check markdown header formatting and hierarchy.
@@ -666,7 +807,7 @@ class CodebaseAnalyzer:
                     # Handle both dictionary and object access
                     is_binary = info.get('is_binary', False) if hasattr(info, 'get') else getattr(info, 'is_binary', False)
                     
-                    if path.endswith(file_pattern) and not is_binary:
+                    if str(path).endswith(file_pattern) and not is_binary:
                         try:
                             # Handle both dictionary and object access
                             content = info.get('content', '') if hasattr(info, 'get') else getattr(info, 'content', '')
@@ -706,7 +847,7 @@ class CodebaseAnalyzer:
             
             # Look for namespace declarations in C# files - FIXED: Access content directly
             for path, info in self.file_manifest.items():
-                if path.endswith('.cs'):
+                if str(path).endswith('.cs'):
                     try:
                         # Access content directly from the FileInfo object
                         content = info.content if hasattr(info, 'content') else ""
@@ -723,7 +864,8 @@ class CodebaseAnalyzer:
             # Look for src/main/java/com/company/project pattern (common in Java)
             java_pattern = re.compile(r'src/main/java/([^/]+)/([^/]+)/([^/]+)')
             for path in self.file_manifest.keys():
-                match = java_pattern.search(path)
+                path_str = str(path)
+                match = java_pattern.search(path_str)
                 if match:
                     # Use the last component as the project name
                     return match.group(3)
@@ -731,7 +873,8 @@ class CodebaseAnalyzer:
             # Try to derive from directory name (use the repository root name)
             # This is a fallback if no other method works
             for path in self.file_manifest.keys():
-                parts = path.split('/')
+                path_str = str(path)
+                parts = path_str.split('/')
                 if len(parts) > 1:
                     # The first part is usually the repository name
                     return parts[0]

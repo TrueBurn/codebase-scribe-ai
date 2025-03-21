@@ -102,7 +102,8 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
         
         # Look for package.json files
         for path, info in file_manifest.items():
-            if path.endswith('package.json') and not info.get('is_binary', False):
+            path_str = str(path)
+            if path_str.endswith('package.json') and not info.get('is_binary', False):
                 package_json_count += 1
                 try:
                     content = info.get('content', '')
@@ -123,7 +124,8 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
         
         # Look for requirements.txt files
         for path, info in file_manifest.items():
-            if path.endswith('requirements.txt') and not info.get('is_binary', False):
+            path_str = str(path)
+            if path_str.endswith('requirements.txt') and not info.get('is_binary', False):
                 requirements_txt_count += 1
                 try:
                     content = info.get('content', '')

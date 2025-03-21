@@ -41,7 +41,7 @@ def generate_badges(file_manifest: Dict[str, FileInfo], repo_path: Path,
     # Badge format: ![Label](https://img.shields.io/badge/Label-Message-Color?style=Style&logo=LogoName&logoColor=LogoColor)
     
     # Check for license file to add license badge
-    license_files = [f for f in file_manifest.keys() if 'license' in f.lower()]
+    license_files = [f for f in file_manifest.keys() if 'license' in str(f).lower()]
     if license_files:
         try:
             license_file = license_files[0]
@@ -99,8 +99,9 @@ def generate_badges(file_manifest: Dict[str, FileInfo], repo_path: Path,
     # Find the first matching CI/CD system
     ci_cd_found = False
     for file_path in file_manifest.keys():
+        file_path_str = str(file_path)
         for ci_pattern, ci_info in ci_cd_systems.items():
-            if ci_pattern.lower() in file_path.lower():
+            if ci_pattern.lower() in file_path_str.lower():
                 badges.append(
                     f"![CI/CD](https://img.shields.io/badge/CI%2FCD-{ci_info['name']}-{ci_info['color']}?style={badge_style}&logo={ci_info['logo']}&logoColor=white)"
                 )
@@ -141,7 +142,7 @@ def generate_badges(file_manifest: Dict[str, FileInfo], repo_path: Path,
     
     # First check for explicit framework files
     for file_path in file_manifest.keys():
-        file_lower = file_path.lower()
+        file_lower = str(file_path).lower()
         for framework, info in test_frameworks.items():
             if framework in file_lower:
                 badges.append(
@@ -155,7 +156,7 @@ def generate_badges(file_manifest: Dict[str, FileInfo], repo_path: Path,
     # If no explicit framework found, check for test directories with language extensions
     if not test_framework_found:
         for file_path in file_manifest.keys():
-            file_lower = file_path.lower()
+            file_lower = str(file_path).lower()
             if 'test' in file_lower:
                 for ext, name, color, logo in language_test_patterns:
                     if ext in file_lower:
@@ -172,7 +173,7 @@ def generate_badges(file_manifest: Dict[str, FileInfo], repo_path: Path,
     has_docs = False
     
     for file_path in file_manifest.keys():
-        file_lower = file_path.lower()
+        file_lower = str(file_path).lower()
         if any(pattern in file_lower for pattern in doc_patterns):
             has_docs = True
             break
@@ -185,7 +186,7 @@ def generate_badges(file_manifest: Dict[str, FileInfo], repo_path: Path,
     has_docker = False
     
     for file_path in file_manifest.keys():
-        file_lower = file_path.lower()
+        file_lower = str(file_path).lower()
         if any(pattern in file_lower for pattern in docker_patterns):
             has_docker = True
             break
@@ -254,7 +255,7 @@ def generate_badges(file_manifest: Dict[str, FileInfo], repo_path: Path,
     # First pass: detect languages and create a set of found languages
     found_languages = set()
     for file_path in file_manifest.keys():
-        file_lower = file_path.lower()
+        file_lower = str(file_path).lower()
         for pattern, info in language_patterns.items():
             if pattern in file_lower:
                 found_languages.add(pattern)
@@ -265,7 +266,7 @@ def generate_badges(file_manifest: Dict[str, FileInfo], repo_path: Path,
     
     # Second pass: detect frameworks, but only if their required language is found
     for file_path in file_manifest.keys():
-        file_lower = file_path.lower()
+        file_lower = str(file_path).lower()
         for pattern, info in framework_patterns.items():
             # Skip if this framework requires a language that wasn't found
             if "requires" in info and info["requires"] not in found_languages:

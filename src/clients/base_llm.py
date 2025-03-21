@@ -108,7 +108,7 @@ class BaseLLMClient(ABC):
         return True
     
     @abstractmethod
-    async def generate_summary(self, prompt: str) -> Optional[str]:
+    async def generate_summary(self, content: str, file_type: str = "text", file_path: str = None) -> Optional[str]:
         """
         Generate a summary for a file's content.
         
@@ -116,14 +116,20 @@ class BaseLLMClient(ABC):
         summary describing its purpose and functionality.
         
         Args:
-            prompt: The file content to summarize
+            content: The content of the file to summarize
+            file_type: The type/language of the file (default: "text")
+            file_path: The path to the file (default: None)
             
         Returns:
             Optional[str]: Generated summary or None if generation fails
             
         Example:
             ```python
-            summary = await client.generate_summary("def hello(): print('Hello world')")
+            summary = await client.generate_summary(
+                "def hello(): print('Hello world')",
+                file_type="python",
+                file_path="src/hello.py"
+            )
             # Returns: "A function that prints 'Hello world'"
             ```
         """

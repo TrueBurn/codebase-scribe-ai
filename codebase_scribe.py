@@ -153,7 +153,7 @@ async def process_files(
     
     # Get list of files to process
     if file_list is None:
-        files = analyzer.get_repository_files()
+        files = analyzer._get_repository_files()
     else:
         files = file_list
     
@@ -180,13 +180,15 @@ async def process_files(
             """
             # Skip binary files
             if analyzer.is_binary(file_path):
-                progress.update(1, description=f"Skipping binary file: {file_path.name}")
+                progress.update(1)
+                progress.set_postfix_str(f"Skipping binary file: {file_path.name}")
                 cache_stats["skipped"] += 1
                 return None
             
             # Skip files that should be excluded
             if not analyzer.should_include_file(file_path):
-                progress.update(1, description=f"Skipping excluded file: {file_path.name}")
+                progress.update(1)
+                progress.set_postfix_str(f"Skipping excluded file: {file_path.name}")
                 cache_stats["skipped"] += 1
                 return None
             
@@ -195,7 +197,8 @@ async def process_files(
                 cached_summary = analyzer.cache.get_cached_summary(file_path)
                 if cached_summary and not analyzer.cache.is_file_changed(file_path):
                     # Use cached summary
-                    progress.update(1, description=f"Using cached summary: {file_path.name}")
+                    progress.update(1)
+                    progress.set_postfix_str(f"Using cached summary: {file_path.name}")
                     cache_stats["from_cache"] += 1
                     
                     # Create FileInfo object from cached summary
@@ -215,7 +218,8 @@ async def process_files(
                 language = analyzer.get_file_language(file_path)
                 
                 # Generate summary with LLM
-                progress.update(0, description=f"Generating summary: {file_path.name}")
+                progress.update(0)
+                progress.set_postfix_str(f"Generating summary: {file_path.name}")
                 summary = await llm_client.generate_summary(
                     file_path=str(file_path.relative_to(repo_path)),
                     content=content,
@@ -227,7 +231,8 @@ async def process_files(
                     analyzer.cache.save_summary(file_path, summary)
                 
                 # Update progress
-                progress.update(1, description=f"Processed: {file_path.name}")
+                progress.update(1)
+                progress.set_postfix_str(f"Processed: {file_path.name}")
                 cache_stats["from_llm"] += 1
                 
                 # Create FileInfo object
@@ -494,7 +499,7 @@ async def main():
             return
         
         # Generate badges
-        badges = generate_badges(file_manifest)
+        badges = generate_badges(file_manifest, repo_path)
         
         # Generate architecture documentation
         print("\nGenerating architecture documentation...")
@@ -510,11 +515,29 @@ async def main():
         # Generate README
         print("\nGenerating README...")
         with create_documentation_progress_bar(repo_path) as progress:
+            # Create file summaries dictionary
+            file_summaries = {}
+            for path, info in file_manifest.items():
+                if hasattr(info, 'summary'):
+                    file_summaries[path] = info.summary
+                elif isinstance(info, dict) and 'summary' in info:
+                    file_summaries[path] = info['summary']
+            
+            # Create analyzer instance if not already created
+            analyzer = CodebaseAnalyzer(repo_path, config)
+            analyzer.file_manifest = file_manifest
+            
+            # Create output directory
+            output_dir = Path("generated_docs")
+            
             readme_content = await generate_readme(
                 repo_path=repo_path,
                 file_manifest=file_manifest,
                 llm_client=llm_client,
-                config=config
+                file_summaries=file_summaries,
+                config=config,
+                analyzer=analyzer,
+                output_dir=str(output_dir)
             )
             progress.update(1)
         
@@ -559,21 +582,29 @@ async def main():
             print("\nCreating pull request...")
             try:
                 # Prepare branch
-                branch_name = prepare_github_branch(repo_path, args.branch_name)
+                github_token = os.environ.get('GITHUB_TOKEN')
+                if not github_token:
+                    raise GitHubError("GitHub token not found in environment variables")
+                
+                # First clean up any existing branch/PR
+                await prepare_github_branch(args.github, github_token, args.branch_name)
+                
+                # Create the branch
+                create_git_branch(repo_path, args.branch_name)
                 
                 # Commit changes
                 commit_documentation_changes(repo_path, [readme_path, architecture_path])
                 
                 # Push branch
-                push_branch_to_remote(repo_path, branch_name, github_token)
+                await push_branch_to_remote(repo_path, args.branch_name, github_token, args.github)
                 
                 # Create PR
-                pr_url = create_pull_request(
-                    repo_path,
-                    branch_name,
+                pr_url = await create_pull_request(
+                    args.github,
+                    github_token,
+                    args.branch_name,
                     args.pr_title,
-                    args.pr_body,
-                    github_token
+                    args.pr_body
                 )
                 
                 print(f"Pull request created: {pr_url}")

@@ -185,7 +185,7 @@ class OllamaClient(BaseLLMClient):
         jitter=True,
         exceptions=(httpx.HTTPError, ConnectionError, TimeoutError),
     )
-    async def generate_summary(self, prompt: str) -> Optional[str]:
+    async def generate_summary(self, content: str, file_type: str = "text", file_path: str = None) -> Optional[str]:
         """
         Generate a summary for a file's content.
         
@@ -194,12 +194,18 @@ class OllamaClient(BaseLLMClient):
         limit checking and truncation if necessary.
         
         Args:
-            prompt: The file content to summarize
+            content: The content of the file to summarize
+            file_type: The type/language of the file (default: "text")
+            file_path: The path to the file (default: None)
             
         Returns:
             Optional[str]: Generated summary or None if generation fails
         """
         try:
+            # Create a prompt that includes file information
+            file_info = f"File: {file_path}\nType: {file_type}\n\n" if file_path else ""
+            prompt = f"{file_info}{content}"
+            
             # Check token count
             will_exceed, token_count = self.token_counter.will_exceed_limit(prompt, self.selected_model)
             
