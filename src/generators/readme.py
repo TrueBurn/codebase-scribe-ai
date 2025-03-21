@@ -1,6 +1,7 @@
 # Standard library imports
 import logging
 import re
+import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 
@@ -315,6 +316,8 @@ async def generate_overview(
         return overview
     except Exception as e:
         logging.error(f"Error generating overview: {e}")
+        logging.error(f"Exception type: {type(e)}")
+        logging.error(f"Exception traceback: {traceback.format_exc()}")
         return f"{project_name} is a software project."
 
 async def generate_overview_with_fallbacks(
@@ -347,6 +350,8 @@ async def generate_overview_with_fallbacks(
             return overview
     except Exception as e:
         logging.error(f"Error in LLM call for project overview: {e}")
+        logging.error(f"Exception type: {type(e)}")
+        logging.error(f"Exception traceback: {traceback.format_exc()}")
     
     # Strategy 2: Extract from architecture document
     if architecture_file_exists:
@@ -424,6 +429,8 @@ async def generate_section(
         return content
     except Exception as e:
         logging.error(f"Error generating {section_type}: {e}")
+        logging.error(f"Exception type: {type(e)}")
+        logging.error(f"Exception traceback: {traceback.format_exc()}")
         return fallback_text
 
 def add_architecture_link_if_needed(content: str, architecture_file_exists: bool) -> str:

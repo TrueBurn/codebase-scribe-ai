@@ -312,7 +312,8 @@ class BedrockClient(BaseLLMClient):
                     template_content = self.prompt_template.get_template("project_overview").format(
                         project_name=project_name,
                         file_count=len(file_manifest),
-                        key_components=key_components
+                        key_components=key_components,
+                        dependencies=tech_report
                     )
 
                     # Update progress
@@ -360,6 +361,8 @@ class BedrockClient(BaseLLMClient):
                     if self.debug:
                         print(f"\nError generating overview: {str(e)}")
                     logging.error(f"Error in generate_project_overview: {e}")
+                    logging.error(f"Exception type: {type(e)}")
+                    logging.error(f"Exception traceback: {traceback.format_exc()}")
                     return f"This is a software project containing {len(file_manifest)} files."
                 finally:
                     # Update progress

@@ -233,7 +233,8 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
             if path_str.endswith('requirements.txt') and not is_binary:
                 requirements_txt_count += 1
                 try:
-                    content = info.content
+                    # Get content from either a dictionary or an object
+                    content = info.get('content', '') if isinstance(info, dict) else getattr(info, 'content', '')
                     if content:
                         # Check if content is a string
                         if not isinstance(content, str):
