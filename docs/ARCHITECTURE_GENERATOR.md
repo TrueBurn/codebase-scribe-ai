@@ -59,33 +59,90 @@ MIN_CONTENT_LENGTH = 100  # Minimum length for valid architecture content
 
 ## Integration with MermaidGenerator
 
-The Architecture Generator uses the MermaidGenerator to create visual diagrams of the codebase structure. In the previous implementation, it would configure the MermaidGenerator with appropriate settings for each diagram type:
+The Architecture Generator now uses a hybrid approach that combines LLM-generated content with programmatically generated Mermaid diagrams:
 
 ```python
-# Create MermaidGenerator with appropriate configuration
-mermaid = MermaidGenerator(
-    analyzer.graph,
-    direction="TB",  # Top-to-bottom for better package visualization
-    sanitize_nodes=True
-)
+# Build a dependency graph from the file manifest
+dependency_graph = build_dependency_graph_from_manifest(file_manifest)
 
-# Add package-level overview
-content += "## Package Structure\n\n"
-content += "The following diagram shows the high-level package organization:\n\n"
-content += mermaid.generate_package_diagram(custom_direction="TB")
+# Create MermaidGenerator with the dependency graph
+mermaid_gen = MermaidGenerator(dependency_graph)
 
-# Add module dependencies
-content += "## Module Dependencies\n\n"
-content += "This flowchart shows the dependencies between modules:\n\n"
-content += mermaid.generate_dependency_flowchart(custom_direction="LR")
+# Generate a dependency flowchart
+diagram = mermaid_gen.generate_dependency_flowchart()
 
-# Add detailed class diagram
-content += "## Class Structure\n\n"
-content += "The following class diagram shows the detailed structure including exports:\n\n"
-content += mermaid.generate_class_diagram()
+# Insert the diagram into the LLM-generated content
+if diagram and "```mermaid" in diagram:
+    # Add the diagram before the first section or at the end if no sections
+    if "## " in architecture_content:
+        parts = architecture_content.split("## ", 1)
+        architecture_content = parts[0] + "\n" + diagram + "\n\n## " + parts[1]
+    else:
+        architecture_content += "\n\n" + diagram
 ```
 
-However, in the current implementation, the LLM is responsible for generating the architecture content, including any Mermaid diagrams. The architecture generator focuses on formatting, validation, and providing fallback mechanisms when the LLM fails.
+This approach ensures that even if the LLM doesn't generate diagrams, the architecture documentation will still include visual representations of the codebase structure.
+
+### Path Compression
+
+The Architecture Generator now includes a path compression system that reduces token usage when sending file paths to the LLM:
+
+```python
+# Apply path compression to reduce token usage
+compressed_paths, decompression_map = compress_paths(file_paths)
+
+# Generate the compressed project structure
+project_structure = "\n".join([f"- {path}" for path in compressed_paths])
+
+# Add explanation of compression scheme
+compression_explanation = get_compression_explanation(decompression_map)
+project_structure = compression_explanation + "\n\n" + project_structure
+```
+
+This is particularly useful for Java projects with deep package structures, where file paths can consume a significant portion of the token budget.
+
+### Dependency Graph Generation
+
+The Architecture Generator now includes a sophisticated dependency graph generation system that:
+
+1. Analyzes the file manifest to identify components
+2. Creates relationships between components based on:
+   - File imports and exports
+   - Package structure (for Java projects)
+   - Common architectural patterns
+
+For Java projects, it specifically:
+- Identifies components based on package naming conventions
+- Creates relationships based on common Java architectural patterns (e.g., controllers depend on services)
+- Handles deep package structures common in Java projects
+
+This results in more meaningful and accurate component diagrams, especially for Java projects.
+
+### Tree View Generation
+
+The Architecture Generator now includes improved tree view generation for project structures:
+
+```python
+# Generate a proper tree structure
+tree_structure = []
+
+# Group files by directory
+dir_structure = {}
+for path in file_manifest.keys():
+    # Build directory structure
+    # ...
+
+# Format the tree structure
+def format_dir_tree(structure, prefix=''):
+    lines = []
+    # Format directories and files
+    # ...
+    return lines
+
+tree_lines = format_dir_tree(dir_structure)
+```
+
+This provides a more organized and readable representation of the project structure in the architecture documentation.
 
 ## Error Handling
 

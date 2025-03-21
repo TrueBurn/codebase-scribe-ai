@@ -39,48 +39,104 @@ def format_project_structure(file_manifest: Dict[str, Dict], debug: bool = False
     """
     logging.debug("Formatting project structure")
     try:
-        # Create a nested dictionary to represent the directory structure
-        directories: Dict[str, Dict] = {}
+        # Import path compression utilities
+        from ..utils.path_compression import compress_paths, get_compression_explanation
         
-        for path in file_manifest.keys():
-            parts = path.split('/')
-            current_dir = directories
-            
-            # Navigate through the directory structure
-            for i, part in enumerate(parts[:-1]):  # All parts except the last one (filename)
-                if part not in current_dir:
-                    current_dir[part] = {}
-                current_dir = current_dir[part]
-            
-            # Add the file to the current directory
-            if '_files' not in current_dir:
-                current_dir['_files'] = []
-            current_dir['_files'].append(parts[-1])  # The last part is the filename
+        # Get file paths from manifest
+        file_paths = [str(path).replace('\\', '/') for path in file_manifest.keys()]
         
-        # Format the directory structure as a string
-        def format_dir(dir_dict: Dict, indent: int = 0) -> List[str]:
-            result = []
-            # First list all files in the current directory
-            if '_files' in dir_dict:
-                for file in sorted(dir_dict['_files']):
-                    result.append(' ' * indent + '- ' + file)
-            
-            # Then list all subdirectories
-            for name, contents in sorted(dir_dict.items()):
-                if name != '_files':
-                    result.append(' ' * indent + '+ ' + name + '/')
-                    result.extend(format_dir(contents, indent + 2))
-            
-            return result
+        # Check if we should use path compression (only for large projects)
+        use_compression = len(file_paths) > 50
         
-        structure_lines = format_dir(directories)
-        formatted_structure = '\n'.join(structure_lines)
+        if use_compression:
+            # Apply path compression to reduce token usage
+            compressed_paths, decompression_map = compress_paths(file_paths)
+            
+            # Create a nested dictionary to represent the directory structure
+            directories: Dict[str, Dict] = {}
+            
+            for path in compressed_paths:
+                parts = path.split('/')
+                current_dir = directories
+                
+                # Navigate through the directory structure
+                for i, part in enumerate(parts[:-1]):  # All parts except the last one (filename)
+                    if part not in current_dir:
+                        current_dir[part] = {}
+                    current_dir = current_dir[part]
+                
+                # Add the file to the current directory
+                if '_files' not in current_dir:
+                    current_dir['_files'] = []
+                current_dir['_files'].append(parts[-1])  # The last part is the filename
+            
+            # Format the directory structure as a string
+            def format_dir(dir_dict: Dict, indent: int = 0) -> List[str]:
+                result = []
+                # First list all files in the current directory
+                if '_files' in dir_dict:
+                    for file in sorted(dir_dict['_files']):
+                        result.append(' ' * indent + '- ' + file)
+                
+                # Then list all subdirectories
+                for name, contents in sorted(dir_dict.items()):
+                    if name != '_files':
+                        result.append(' ' * indent + '+ ' + name + '/')
+                        result.extend(format_dir(contents, indent + 2))
+                
+                return result
+            
+            structure_lines = format_dir(directories)
+            formatted_structure = '\n'.join(structure_lines)
+            
+            # Add explanation of compression scheme
+            compression_explanation = get_compression_explanation(decompression_map)
+            formatted_structure = compression_explanation + "\n\n" + formatted_structure
+        else:
+            # Use the original approach for smaller projects
+            directories: Dict[str, Dict] = {}
+            
+            for path in file_paths:
+                parts = path.split('/')
+                current_dir = directories
+                
+                # Navigate through the directory structure
+                for i, part in enumerate(parts[:-1]):  # All parts except the last one (filename)
+                    if part not in current_dir:
+                        current_dir[part] = {}
+                    current_dir = current_dir[part]
+                
+                # Add the file to the current directory
+                if '_files' not in current_dir:
+                    current_dir['_files'] = []
+                current_dir['_files'].append(parts[-1])  # The last part is the filename
+            
+            # Format the directory structure as a string
+            def format_dir(dir_dict: Dict, indent: int = 0) -> List[str]:
+                result = []
+                # First list all files in the current directory
+                if '_files' in dir_dict:
+                    for file in sorted(dir_dict['_files']):
+                        result.append(' ' * indent + '- ' + file)
+                
+                # Then list all subdirectories
+                for name, contents in sorted(dir_dict.items()):
+                    if name != '_files':
+                        result.append(' ' * indent + '+ ' + name + '/')
+                        result.extend(format_dir(contents, indent + 2))
+                
+                return result
+            
+            structure_lines = format_dir(directories)
+            formatted_structure = '\n'.join(structure_lines)
+        
         logging.debug(f"Project structure formatted successfully with {len(structure_lines)} lines")
         return formatted_structure
     except Exception as e:
         logging.error(f"Error formatting project structure: {e}")
         if debug:
             print(f"Error formatting project structure: {e}")
+            print(traceback.format_exc())
         return "Error formatting project structure"
 def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False) -> str:
     """

@@ -3,7 +3,7 @@ import logging
 import re
 import traceback
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, List
 import networkx as nx
 
 # Local imports
@@ -11,6 +11,7 @@ from ..analyzers.codebase import CodebaseAnalyzer
 from ..clients.base_llm import BaseLLMClient
 from ..utils.markdown_validator import MarkdownValidator
 from ..utils.config_class import ScribeConfig
+from ..utils.path_compression import compress_paths, get_compression_explanation
 from .mermaid import MermaidGenerator
 from .readme import _format_anchor_link
 

@@ -450,6 +450,23 @@ The system provides:
 
 See the [Configuration Guide](docs/CONFIG.md) for detailed information on the configuration system.
 
+### Path Compression
+
+The project includes a path compression utility that reduces token usage when sending file paths to LLMs. This is particularly useful for Java projects with deep package structures, where file paths can consume a significant portion of the token budget.
+
+The path compression system:
+
+- Identifies common prefixes in file paths
+- Replaces them with shorter keys (e.g., `@1`, `@2`)
+- Adds an explanation of the compression scheme to the LLM prompt
+- Significantly reduces token usage for large projects
+
+For example, paths like `src/main/java/com/example/project/Controller.java` are compressed to `@1/Controller.java`, saving tokens while maintaining readability.
+
+### TODOs
+
+- **Fix Dependencies Error**: There's an issue with the `dependencies` field in the project overview generation. This needs to be investigated and fixed to ensure proper documentation generation.
+
 ### Bytecode Caching
 
 Python bytecode caching is currently disabled for development purposes. To re-enable it:
@@ -457,7 +474,6 @@ Python bytecode caching is currently disabled for development purposes. To re-en
 1. Remove `sys.dont_write_bytecode = True` from `codebase_scribe.py`
 2. Or unset the `PYTHONDONTWRITEBYTECODE` environment variable
 
-This should be re-enabled before deploying to production for better performance.
 This should be re-enabled before deploying to production for better performance.
 
 ## Cache Management

@@ -147,32 +147,57 @@ flowchart TB
 
 ## Integration with Architecture Generator
 
-The MermaidGenerator was previously used directly by the architecture generator to create visual representations of the codebase structure. In the current implementation, the LLM is responsible for generating the architecture content, including any Mermaid diagrams.
+The MermaidGenerator is now used in a hybrid approach with the LLM:
 
-The architecture generator now focuses on:
-1. Coordinating with the LLM to generate content
-2. Formatting and validating the generated content
-3. Providing fallback mechanisms when LLM generation fails
+1. The architecture generator builds a dependency graph from the file manifest
+2. This graph is passed to the MermaidGenerator to create component diagrams
+3. The generated diagrams are inserted into the LLM-generated architecture content
+4. This ensures that even if the LLM doesn't generate diagrams, the architecture documentation will still include visual representations
 
-For more details on the architecture generation process, see the [Architecture Generator Documentation](ARCHITECTURE_GENERATOR.md).
+This approach combines the strengths of both systems:
+- The LLM provides rich textual descriptions and analysis
+- The MermaidGenerator provides consistent and accurate visual diagrams
 
-### Historical Reference (Previous Implementation)
-
-For reference, this is how the MermaidGenerator was previously used:
+### Current Implementation
 
 ```python
-# Create MermaidGenerator with appropriate configuration
-mermaid = MermaidGenerator(
-    analyzer.graph,
-    direction=DEFAULT_DIAGRAM_DIRECTION,
-    sanitize_nodes=True
-)
+# Build a dependency graph from the file manifest
+dependency_graph = build_dependency_graph_from_manifest(file_manifest)
 
-# Generate diagrams
-package_diagram = mermaid.generate_package_diagram(custom_direction=DEFAULT_DIAGRAM_DIRECTION)
-dependency_flowchart = mermaid.generate_dependency_flowchart(custom_direction=DEPENDENCY_DIAGRAM_DIRECTION)
-class_diagram = mermaid.generate_class_diagram()
+# Create MermaidGenerator with the dependency graph
+mermaid_gen = MermaidGenerator(dependency_graph)
+
+# Generate a dependency flowchart
+diagram = mermaid_gen.generate_dependency_flowchart()
+
+# Insert the diagram into the LLM-generated content
+if diagram and "```mermaid" in diagram:
+    # Add the diagram before the first section or at the end if no sections
+    if "## " in architecture_content:
+        parts = architecture_content.split("## ", 1)
+        architecture_content = parts[0] + "\n" + diagram + "\n\n## " + parts[1]
+    else:
+        architecture_content += "\n\n" + diagram
 ```
+
+### Java Project Support
+
+The MermaidGenerator has been enhanced to better support Java projects with deep package structures:
+
+1. The `build_dependency_graph_from_manifest` function analyzes Java package structures
+2. It identifies components based on package naming conventions
+3. It creates relationships between components based on common Java architectural patterns
+4. This results in more meaningful component diagrams for Java projects
+
+### Path Compression Integration
+
+The MermaidGenerator works seamlessly with the path compression system:
+
+1. File paths are compressed to reduce token usage when sending to the LLM
+2. The MermaidGenerator operates on the original, uncompressed paths
+3. This ensures accurate diagram generation while still benefiting from token savings
+
+For more details on the architecture generation process, see the [Architecture Generator Documentation](ARCHITECTURE_GENERATOR.md).
 
 ## Extending
 
