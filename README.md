@@ -16,6 +16,7 @@ For detailed technical documentation and architecture information, see:
 - [GitHub Integration](docs/GITHUB_INTEGRATION.md) - GitHub utilities and integration features
 - [Development Guide](docs/DEVELOPMENT.md) - Development setup and workflows
 - [Contributing Guide](docs/CONTRIBUTING.md) - Guidelines for contributing to the project
+- [Contributing Generator](docs/CONTRIBUTING_GENERATOR.md) - Documentation for the contributing guide generation system
 - [Badges Guide](docs/BADGES.md) - Documentation for the badge generation system
 - [README Generator](docs/README_GENERATOR.md) - Documentation for the README generation system
 - [Mermaid Generator](docs/MERMAID_GENERATOR.md) - Documentation for the Mermaid diagram generation system
@@ -373,6 +374,7 @@ src/
 │   ├── bedrock.py      # AWS Bedrock integration
 │   └── llm_utils.py    # Shared LLM utilities
 ├── generators/         # Content generation
+│   ├── contributing.py # Contributing guide generation
 │   └── readme.py       # README generation
 ├── models/            # Data models
 │   └── file_info.py   # File information
@@ -426,6 +428,7 @@ Contributions are welcome! Please read our [Contributing Guide](docs/CONTRIBUTIN
 - [Architecture Generator](docs/ARCHITECTURE_GENERATOR.md)
 - [Development Guide](docs/DEVELOPMENT.md)
 - [Contributing Guide](docs/CONTRIBUTING.md)
+- [Contributing Generator](docs/CONTRIBUTING_GENERATOR.md)
 - [README Generator](docs/README_GENERATOR.md)
 - [Mermaid Generator](docs/MERMAID_GENERATOR.md)
 - [CodebaseAnalyzer](docs/CODEBASE_ANALYZER.md)
@@ -541,9 +544,10 @@ While the cache is generally committed to the repository, certain directories ar
 
 ### Completed
 - ✅ **Dependencies Error Fix**: Fixed an issue with the `dependencies` parameter missing in the `generate_project_overview` method in `BedrockClient` class.
+- ✅ **Split Contributing Guide**: Moved the Contributing guide to a separate file with its own generator in the root directory, following GitHub conventions.
 
 ### Planned
-- 📝 **Split Documentation Files**: Move usage and contributing guides to separate files with their own generators.
+- 📝 **Split Usage Guide**: Move the usage guide to a separate file with its own generator.
 - 🔗 **Improve Documentation Links**: Ensure generated README properly links to all other documentation files.
 - 🧪 **Improve Test Coverage**: Add more unit tests for the core functionality.
 - 🚀 **Performance Optimization**: Optimize the file processing pipeline for better performance.

@@ -22,6 +22,7 @@ from src.analyzers.codebase import CodebaseAnalyzer
 from src.clients.base_llm import BaseLLMClient
 from src.clients.llm_factory import LLMClientFactory
 from src.generators.architecture import generate_architecture
+from src.generators.contributing import generate_contributing
 from src.generators.readme import generate_readme
 from src.models.file_info import FileInfo
 from src.utils.badges import generate_badges
@@ -384,7 +385,7 @@ async def main():
                        help='Branch name for PR creation (default: docs/auto-generated-readme)')
     parser.add_argument('--pr-title', default='Add AI-generated documentation',
                        help='Title for the pull request')
-    parser.add_argument('--pr-body', default='This PR adds automatically generated README.md and ARCHITECTURE.md files.',
+    parser.add_argument('--pr-body', default='This PR adds automatically generated README.md, ARCHITECTURE.md, and CONTRIBUTING.md files.',
                        help='Body text for the pull request')
     
     # Existing arguments
@@ -547,24 +548,36 @@ async def main():
             )
             progress.update(1)
         
-        # Generate README
+        # Create file summaries dictionary
+        file_summaries = {}
+        for path, info in file_manifest.items():
+            if hasattr(info, 'summary'):
+                file_summaries[path] = info.summary
+            elif isinstance(info, dict) and 'summary' in info:
+                file_summaries[path] = info['summary']
+        
+        # Create analyzer instance if not already created
+        analyzer = CodebaseAnalyzer(repo_path, config)
+        analyzer.file_manifest = file_manifest
+        
+        # Create output directory
+        output_dir = Path("generated_docs")
+        
+        # Generate Contributing guide first (before README)
+        print("\nGenerating Contributing guide...")
+        with create_documentation_progress_bar(repo_path) as progress:
+            contributing_content = await generate_contributing(
+                repo_path=repo_path,
+                file_manifest=file_manifest,
+                llm_client=llm_client,
+                config=config,
+                analyzer=analyzer
+            )
+            progress.update(1)
+        
+        # Generate README after Contributing guide exists
         print("\nGenerating README...")
         with create_documentation_progress_bar(repo_path) as progress:
-            # Create file summaries dictionary
-            file_summaries = {}
-            for path, info in file_manifest.items():
-                if hasattr(info, 'summary'):
-                    file_summaries[path] = info.summary
-                elif isinstance(info, dict) and 'summary' in info:
-                    file_summaries[path] = info['summary']
-            
-            # Create analyzer instance if not already created
-            analyzer = CodebaseAnalyzer(repo_path, config)
-            analyzer.file_manifest = file_manifest
-            
-            # Create output directory
-            output_dir = Path("generated_docs")
-            
             readme_content = await generate_readme(
                 repo_path=repo_path,
                 file_manifest=file_manifest,
@@ -592,12 +605,14 @@ async def main():
         # Write files
         readme_path = repo_path / args.output
         architecture_path = repo_path / "docs" / "ARCHITECTURE.md"
+        contributing_path = repo_path / "CONTRIBUTING.md"  # In root directory for GitHub recognition
         
         # Create docs directory if it doesn't exist
         os.makedirs(repo_path / "docs", exist_ok=True)
         
         # Fix malformed headings in README content
         readme_content = fix_malformed_headings(readme_content)
+        contributing_content = fix_malformed_headings(contributing_content)
         
         # Write README
         print(f"\nWriting README to {readme_path}")
@@ -607,13 +622,18 @@ async def main():
         print(f"Writing architecture documentation to {architecture_path}")
         architecture_path.write_text(architecture_content, encoding='utf-8')
         
+        # Write contributing guide
+        print(f"Writing contributing guide to {contributing_path}")
+        contributing_path.write_text(contributing_content, encoding='utf-8')
+        
         # Add AI attribution to files
-        add_ai_attribution_to_files([readme_path, architecture_path])
+        add_ai_attribution_to_files([readme_path, architecture_path, contributing_path])
         
         # Copy files to output directory if needed
         if output_dir:
             shutil.copy2(readme_path, output_dir / args.output)
             shutil.copy2(architecture_path, output_dir / "ARCHITECTURE.md")
+            shutil.copy2(contributing_path, output_dir / "CONTRIBUTING.md")  # Copy from root to output dir
             print(f"\nFiles copied to {output_dir}")
         
         # Create PR if requested
@@ -632,7 +652,7 @@ async def main():
                 create_git_branch(repo_path, args.branch_name)
                 
                 # Commit changes
-                commit_documentation_changes(repo_path, [readme_path, architecture_path])
+                commit_documentation_changes(repo_path, [readme_path, architecture_path, contributing_path])
                 
                 # Push branch
                 await push_branch_to_remote(repo_path, args.branch_name, github_token, args.github)

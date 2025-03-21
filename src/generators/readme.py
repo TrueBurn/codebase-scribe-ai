@@ -239,11 +239,8 @@ async def generate_new_readme(
         "Please refer to project documentation for usage instructions."
     )
     
-    contributing = await generate_section(
-        llm_client, file_manifest, 'contributing_guide',
-        CONTENT_THRESHOLDS['contributing_guide_length'],
-        "Please refer to project documentation for contribution guidelines."
-    )
+    # Contributing section is now in a separate file
+    contributing = "For contribution guidelines, see [CONTRIBUTING.md](CONTRIBUTING.md)."
     
     license_info = await generate_section(
         llm_client, file_manifest, 'license_info',

@@ -2,6 +2,8 @@
 
 Thank you for your interest in contributing to the AI README Generator! This document provides guidelines and workflows for contributing to the project.
 
+> **Note**: This file serves as documentation for contributing to the project. When using the Codebase Scribe AI tool, a separate `CONTRIBUTING.md` file is generated in the root directory of the target repository. This follows GitHub's convention where `CONTRIBUTING.md` files in the root directory are automatically recognized and linked when users create new issues or pull requests. For details on how the Contributing guide is generated, see [Contributing Generator](CONTRIBUTING_GENERATOR.md).
+
 ## Table of Contents
 - [Code of Conduct](#code-of-conduct)
 - [Getting Started](#getting-started)
