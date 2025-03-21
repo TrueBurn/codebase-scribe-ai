@@ -12,6 +12,7 @@ from ..clients.base_llm import BaseLLMClient
 from ..utils.markdown_validator import MarkdownValidator
 from ..utils.config_class import ScribeConfig
 from ..utils.path_compression import compress_paths, get_compression_explanation
+from ..utils.tree_formatter import format_tree_structure, _format_tree_node
 from .mermaid import MermaidGenerator
 from .readme import _format_anchor_link
 
@@ -113,85 +114,16 @@ async def generate_architecture(
                         if len(tree_lines) > MAX_TREE_LINES:
                             tree_content += "\n... (truncated)"
                         
-                        # Replace the flat structure with tree view
+                        # Replace the flat structure with improved tree view
                         pattern = r'(## Project Structure\s*\n+```[^\n]*\n)(.*?)(```)'
                         
-                        # Generate a proper tree structure
-                        tree_structure = []
+                        # Generate a proper tree structure with clear hierarchy
+                        tree_content = format_tree_structure(file_manifest)
                         
-                        # Group files by directory
-                        dir_structure = {}
-                        for path in file_manifest.keys():
-                            path_str = str(path).replace('\\', '/')
-                            parts = path_str.split('/')
-                            
-                            # Skip if it's just a file in the root
-                            if len(parts) == 1:
-                                if 'root' not in dir_structure:
-                                    dir_structure['root'] = []
-                                dir_structure['root'].append(parts[0])
-                                continue
-                                
-                            # Build directory structure
-                            current_dir = dir_structure
-                            for i, part in enumerate(parts[:-1]):
-                                if i == 0:
-                                    # First level directory
-                                    if part not in current_dir:
-                                        current_dir[part] = {'__files': []}
-                                    current_dir = current_dir[part]
-                                else:
-                                    # Nested directory
-                                    if '__dirs' not in current_dir:
-                                        current_dir['__dirs'] = {}
-                                    if part not in current_dir['__dirs']:
-                                        current_dir['__dirs'][part] = {'__files': []}
-                                    current_dir = current_dir['__dirs'][part]
-                            
-                            # Add file to the current directory
-                            current_dir['__files'].append(parts[-1])
-                        
-                        # Format the tree structure
-                        def format_dir_tree(structure, prefix=''):
-                            lines = []
-                            
-                            # Add root files
-                            if 'root' in structure:
-                                for file in sorted(structure['root']):
-                                    lines.append(f"{prefix}{file}")
-                                
-                            # Add directories
-                            for dir_name in sorted([k for k in structure.keys() if k != 'root']):
-                                dir_content = structure[dir_name]
-                                lines.append(f"{prefix}{dir_name}/")
-                                
-                                # Add files in this directory
-                                for file in sorted(dir_content.get('__files', [])):
-                                    lines.append(f"{prefix}  {file}")
-                                
-                                # Add subdirectories
-                                if '__dirs' in dir_content:
-                                    for subdir_name in sorted(dir_content['__dirs'].keys()):
-                                        subdir_content = dir_content['__dirs'][subdir_name]
-                                        lines.append(f"{prefix}  {subdir_name}/")
-                                        
-                                        # Add files in subdirectory
-                                        for file in sorted(subdir_content.get('__files', [])):
-                                            lines.append(f"{prefix}    {file}")
-                                        
-                                        # Add deeper subdirectories (simplified, doesn't go beyond 2 levels)
-                                        if '__dirs' in subdir_content:
-                                            for deep_subdir in sorted(subdir_content['__dirs'].keys()):
-                                                lines.append(f"{prefix}    {deep_subdir}/")
-                                                deep_files = subdir_content['__dirs'][deep_subdir].get('__files', [])
-                                                for file in sorted(deep_files):
-                                                    lines.append(f"{prefix}      {file}")
-                            
-                            return lines
-                        
-                        tree_lines = format_dir_tree(dir_structure)
-                        tree_content = '\n'.join(tree_lines[:MAX_TREE_LINES])
+                        # Truncate if too long
+                        tree_lines = tree_content.split('\n')
                         if len(tree_lines) > MAX_TREE_LINES:
+                            tree_content = '\n'.join(tree_lines[:MAX_TREE_LINES])
                             tree_content += "\n... (truncated)"
                         
                         replacement = r'\1' + tree_content + r'\n```'
@@ -266,16 +198,37 @@ def format_tree(d, indent=0):
     Returns:
         List of formatted tree lines
     """
-    result = []
+    # Convert the old format to the new format
+    new_format = {}
     if '_files' in d:
-        for f in sorted(d['_files']):
-            result.append(' ' * indent + f)
+        new_format['__files__'] = d['_files']
     
-    for k in sorted(d.keys()):
+    for k in d.keys():
         if k != '_files':
-            result.append(' ' * indent + k + '/')
-            result.extend(format_tree(d[k], indent + 2))
-    return result
+            new_format[k] = {}
+            # Recursively convert subdirectories
+            _convert_tree_format(d[k], new_format[k])
+    
+    # Format the tree
+    lines = []
+    _format_tree_node(new_format, lines, "", "")
+    return lines
+
+def _convert_tree_format(old_format, new_format):
+    """
+    Convert the old tree format to the new format.
+    
+    Args:
+        old_format: Dictionary in the old format
+        new_format: Dictionary to populate with the new format
+    """
+    if '_files' in old_format:
+        new_format['__files__'] = old_format['_files']
+    
+    for k in old_format.keys():
+        if k != '_files':
+            new_format[k] = {}
+            _convert_tree_format(old_format[k], new_format[k])
 def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
     """
     Create a fallback architecture document with basic project structure.
@@ -291,11 +244,8 @@ def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
     Returns:
         Basic architecture documentation as a string
     """
-    # Import the format_project_structure function
-    from ..clients.llm_utils import format_project_structure
-    
-    # Format project structure without compression
-    project_structure = format_project_structure(file_manifest, debug=False, force_compression=False)
+    # Format project structure with improved tree visualization
+    project_structure = format_tree_structure(file_manifest)
     
     # Create a basic structure analysis
     structure_sections = analyze_basic_structure(file_manifest)

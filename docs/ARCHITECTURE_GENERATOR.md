@@ -120,29 +120,45 @@ This results in more meaningful and accurate component diagrams, especially for 
 
 ### Tree View Generation
 
-The Architecture Generator now includes improved tree view generation for project structures:
+The Architecture Generator now includes enhanced tree view generation for project structures using box-drawing characters that clearly show folder hierarchy:
 
 ```python
-# Generate a proper tree structure
-tree_structure = []
+# Import the tree formatter
+from ..utils.tree_formatter import format_tree_structure
 
-# Group files by directory
-dir_structure = {}
-for path in file_manifest.keys():
-    # Build directory structure
-    # ...
-
-# Format the tree structure
-def format_dir_tree(structure, prefix=''):
-    lines = []
-    # Format directories and files
-    # ...
-    return lines
-
-tree_lines = format_dir_tree(dir_structure)
+# Generate a proper tree structure with clear hierarchy
+tree_content = format_tree_structure(file_manifest)
 ```
 
-This provides a more organized and readable representation of the project structure in the architecture documentation.
+This provides a more visually clear representation of the project structure in the architecture documentation:
+
+```
+├── .gitignore
+├── Dockerfile
+├── README.md
+├── pom.xml
+├── .github/
+│   └── workflows/
+│       ├── ai-code-review.yml
+│       └── build-deploy.yaml
+├── src/
+│   ├── main/
+│   │   └── java/
+│   │       └── com/
+│   │           └── example/
+│   │               ├── Application.java
+│   │               ├── controller/
+│   │               │   └── ApiController.java
+│   │               └── service/
+│   │                   └── ApiService.java
+│   └── test/
+│       └── java/
+│           └── com/
+│               └── example/
+│                   └── ApplicationTest.java
+```
+
+The tree formatter is implemented in `src/utils/tree_formatter.py` and provides functions to format project structures with proper indentation and connecting lines, making it much easier to understand the folder depth and relationships between files and directories.
 
 ## Error Handling
 

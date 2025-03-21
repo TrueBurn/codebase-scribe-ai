@@ -383,7 +383,8 @@ src/
     ├── markdown_validator.py  # Markdown checks
     ├── progress.py    # Progress tracking
     ├── prompt_manager.py  # Prompt handling
-    └── readability.py # Readability scoring
+    ├── readability.py # Readability scoring
+    └── tree_formatter.py # Project structure visualization
 ```
 
 ## Development
@@ -462,13 +463,15 @@ The path compression system:
 - Significantly reduces token usage for large projects
 
 For example, paths like `src/main/java/com/example/project/Controller.java` are compressed to `@1/Controller.java`, saving tokens while maintaining readability.
-
 ### Recent Fixes
+
+- **Improved Project Structure Visualization**: Enhanced the project structure representation in architecture documentation with a new tree formatter that uses box-drawing characters to clearly show folder hierarchy and relationships.
 
 - **Path Compression**: Added a path compression utility that reduces token usage when sending file paths to LLMs. This is particularly useful for Java projects with deep package structures.
 
 - **Dependencies Error Fix**: Fixed an issue with the `dependencies` field in the project overview generation. The problem was that the original file manifest was being passed to the dependency analysis function instead of the converted manifest, causing errors when processing FileInfo objects.
 
+- **Template Parameter Fix**: Fixed an issue in the `BedrockClient` class where the `dependencies` parameter was missing in the `format` method call for the project overview template, causing a KeyError.
 - **Template Parameter Fix**: Fixed an issue in the `BedrockClient` class where the `dependencies` parameter was missing in the `format` method call for the project overview template, causing a KeyError.
 
 ### Bytecode Caching
