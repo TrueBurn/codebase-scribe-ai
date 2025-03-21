@@ -11,6 +11,7 @@ A Python tool that generates comprehensive project documentation using AI models
 ## Documentation
 For detailed technical documentation and architecture information, see:
 - [Architecture Guide](docs/ARCHITECTURE.md) - System design and component interactions
+- [Architecture Generator](docs/ARCHITECTURE_GENERATOR.md) - Documentation for the architecture generation system
 - [Configuration Guide](docs/CONFIG.md) - Detailed configuration options and usage
 - [GitHub Integration](docs/GITHUB_INTEGRATION.md) - GitHub utilities and integration features
 - [Development Guide](docs/DEVELOPMENT.md) - Development setup and workflows
@@ -104,8 +105,8 @@ which python
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/codebase-scribe-ai.git
-cd codebase-scribe-ai
+git clone https://github.com/capitec-odin/capibot-document-generator.git
+cd capibot-document-generator
 
 # Install dependencies
 pip install -r requirements.txt
@@ -170,21 +171,21 @@ python codebase_scribe.py --repo ./my-project --debug
 
 ```bash
 # Clone and analyze a GitHub repository
-python codebase_scribe.py --github https://github.com/organization/repository
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator
 
 # Use a GitHub token for private repositories
-python codebase_scribe.py --github https://github.com/organization/private-repo --github-token YOUR_TOKEN
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator --github-token YOUR_TOKEN
 
 # Alternative: set token as environment variable
 export GITHUB_TOKEN=your_github_token
-python codebase_scribe.py --github https://github.com/organization/private-repo
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator
 ```
 
 ### Creating Pull Requests
 
 ```bash
 # Create a PR with documentation changes
-python codebase_scribe.py --github https://github.com/organization/repository \
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator \
   --create-pr \
   --github-token YOUR_TOKEN \
   --branch-name docs/readme-update \
@@ -192,7 +193,7 @@ python codebase_scribe.py --github https://github.com/organization/repository \
   --pr-body "This PR adds auto-generated documentation using the README generator tool."
 
 # Keep the cloned repo after PR creation (for debugging)
-python codebase_scribe.py --github https://github.com/organization/repository \
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator \
   --create-pr --keep-clone
 ```
 
@@ -200,33 +201,33 @@ python codebase_scribe.py --github https://github.com/organization/repository \
 
 ```bash
 # Disable caching (process all files)
-python codebase_scribe.py --github https://github.com/organization/repository --no-cache
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator --no-cache
 
 # Clear cache before processing
-python codebase_scribe.py --github https://github.com/organization/repository --clear-cache
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator --clear-cache
 
 # Only clear cache (don't generate documentation)
-python codebase_scribe.py --github https://github.com/organization/repository --clear-cache --keep-clone
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator --clear-cache --keep-clone
 ```
 
 ### LLM Providers
 
 ```bash
 # Use Ollama (default)
-python codebase_scribe.py --github https://github.com/organization/repository --llm-provider ollama
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator --llm-provider ollama
 
 # Use AWS Bedrock
-python codebase_scribe.py --github https://github.com/organization/repository --llm-provider bedrock
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator --llm-provider bedrock
 ```
 
 ### Output Customization
 
 ```bash
 # Generate additional API documentation
-python codebase_scribe.py --github https://github.com/organization/repository --api-docs
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator --api-docs
 
 # Custom output files
-python codebase_scribe.py --github https://github.com/organization/repository \
+python codebase_scribe.py --github https://github.com/capitec-odin/capibot-document-generator \
   --output-readme custom_readme.md \
   --output-arch custom_architecture.md
 ```
@@ -239,7 +240,7 @@ export GITHUB_TOKEN=ghp_your_personal_access_token
 
 # 2. Generate documentation and create a PR
 python codebase_scribe.py \
-  --github https://github.com/your-org/your-repo \
+  --github https://github.com/capitec-odin/capibot-document-generator \
   --create-pr \
   --branch-name docs/update-documentation \
   --pr-title "Documentation: Update README and architecture docs" \
@@ -421,6 +422,7 @@ Contributions are welcome! Please read our [Contributing Guide](docs/CONTRIBUTIN
 
 - [API Documentation](docs/API.md)
 - [Architecture Guide](docs/ARCHITECTURE.md)
+- [Architecture Generator](docs/ARCHITECTURE_GENERATOR.md)
 - [Development Guide](docs/DEVELOPMENT.md)
 - [Contributing Guide](docs/CONTRIBUTING.md)
 - [README Generator](docs/README_GENERATOR.md)
