@@ -81,7 +81,6 @@ def format_project_structure(file_manifest: Dict[str, Dict], debug: bool = False
         if debug:
             print(f"Error formatting project structure: {e}")
         return "Error formatting project structure"
-
 def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False) -> str:
     """
     Extract common dependencies from file manifest.
@@ -95,18 +94,35 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
     """
     logging.debug("Finding common dependencies")
     try:
+        # Log file_manifest structure
+        logging.debug(f"File manifest type: {type(file_manifest)}")
+        if file_manifest:
+            sample_key = next(iter(file_manifest))
+            sample_value = file_manifest[sample_key]
+            logging.debug(f"Sample key type: {type(sample_key)}, value: {sample_key}")
+            logging.debug(f"Sample value type: {type(sample_value)}")
+            if hasattr(sample_value, '__dict__'):
+                logging.debug(f"Sample value attributes: {dir(sample_value)}")
+        else:
+            logging.debug("File manifest is empty")
+            
         # Collect all dependencies
         dependencies = defaultdict(int)
         package_json_count = 0
         requirements_txt_count = 0
+        csproj_count = 0
+        packages_config_count = 0
+        pom_xml_count = 0
+        gradle_count = 0
+        gradle_count = 0
         
-        # Look for package.json files
+        # Look for package.json files (JavaScript/Node.js)
         for path, info in file_manifest.items():
             path_str = str(path)
-            if path_str.endswith('package.json') and not info.get('is_binary', False):
+            if path_str.endswith('package.json') and not info.is_binary:
                 package_json_count += 1
                 try:
-                    content = info.get('content', '')
+                    content = info.content
                     if content and '"dependencies"' in content:
                         # Extract dependencies section
                         deps_match = re.search(r'"dependencies"\s*:\s*{([^}]+)}', content)
@@ -116,31 +132,127 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                             for dep_match in re.finditer(r'"([^"]+)"\s*:\s*"([^"]+)"', deps_str):
                                 dep_name = dep_match.group(1)
                                 dep_version = dep_match.group(2)
-                                dependencies[f"{dep_name}@{dep_version}"] += 1
+                                dependencies[f"npm:{dep_name}@{dep_version}"] += 1
                 except Exception as e:
                     logging.warning(f"Error parsing package.json at {path}: {e}")
                     if debug:
                         print(f"Error parsing package.json at {path}: {e}")
         
-        # Look for requirements.txt files
+        # Look for requirements.txt files (Python)
         for path, info in file_manifest.items():
             path_str = str(path)
-            if path_str.endswith('requirements.txt') and not info.get('is_binary', False):
+            if path_str.endswith('requirements.txt') and not info.is_binary:
                 requirements_txt_count += 1
                 try:
-                    content = info.get('content', '')
+                    content = info.content
                     if content:
                         # Extract each dependency
                         for line in content.split('\n'):
                             line = line.strip()
                             if line and not line.startswith('#'):
-                                dependencies[line] += 1
+                                dependencies[f"python:{line}"] += 1
                 except Exception as e:
                     logging.warning(f"Error parsing requirements.txt at {path}: {e}")
                     if debug:
                         print(f"Error parsing requirements.txt at {path}: {e}")
         
-        logging.debug(f"Processed {package_json_count} package.json and {requirements_txt_count} requirements.txt files")
+        # Look for .csproj files (C#)
+        for path, info in file_manifest.items():
+            path_str = str(path)
+            if path_str.endswith('.csproj') and not info.is_binary:
+                csproj_count += 1
+                try:
+                    content = info.content
+                    if content:
+                        # Extract PackageReference elements
+                        for match in re.finditer(r'<PackageReference\s+Include="([^"]+)"\s+Version="([^"]+)"', content):
+                            package_name = match.group(1)
+                            version = match.group(2)
+                            dependencies[f"nuget:{package_name}@{version}"] += 1
+                except Exception as e:
+                    logging.warning(f"Error parsing .csproj at {path}: {e}")
+                    if debug:
+                        print(f"Error parsing .csproj at {path}: {e}")
+        
+        # Look for packages.config files (C#)
+        for path, info in file_manifest.items():
+            path_str = str(path)
+            if path_str.endswith('packages.config') and not info.is_binary:
+                packages_config_count += 1
+                try:
+                    content = info.content
+                    if content:
+                        # Extract package elements
+                        for match in re.finditer(r'<package\s+id="([^"]+)"\s+version="([^"]+)"', content):
+                            package_name = match.group(1)
+                            version = match.group(2)
+                            dependencies[f"nuget:{package_name}@{version}"] += 1
+                except Exception as e:
+                    logging.warning(f"Error parsing packages.config at {path}: {e}")
+                    if debug:
+                        print(f"Error parsing packages.config at {path}: {e}")
+        
+        # Look for pom.xml files (Java/Maven)
+        for path, info in file_manifest.items():
+            path_str = str(path)
+            if path_str.endswith('pom.xml') and not info.is_binary:
+                pom_xml_count += 1
+                try:
+                    content = info.content
+                    if content:
+                        # Extract dependency elements
+                        for match in re.finditer(r'<dependency>\s*<groupId>([^<]+)</groupId>\s*<artifactId>([^<]+)</artifactId>\s*<version>([^<]+)</version>', content, re.DOTALL):
+                            group_id = match.group(1).strip()
+                            artifact_id = match.group(2).strip()
+                            version = match.group(3).strip()
+                            dependencies[f"maven:{group_id}:{artifact_id}@{version}"] += 1
+                except Exception as e:
+                    logging.warning(f"Error parsing pom.xml at {path}: {e}")
+                    if debug:
+                        print(f"Error parsing pom.xml at {path}: {e}")
+        
+        # Look for build.gradle files (Java/Gradle)
+        for path, info in file_manifest.items():
+            path_str = str(path)
+            if path_str.endswith('build.gradle') and not info.is_binary:
+                gradle_count += 1
+                try:
+                    content = info.content
+                    if content:
+                        # Extract implementation/compile dependencies
+                        for match in re.finditer(r'(implementation|compile)\s+[\'"]([^:\'"]*)(?::([^:\'"]*))?(?::([^\'"]*))?(:[^\'"]*)?[\'"]', content):
+                            dep_type = match.group(1)
+                            group = match.group(2) if match.group(2) else ""
+                            artifact = match.group(3) if match.group(3) else ""
+                            version = match.group(4) if match.group(4) else ""
+                            if artifact:
+                                dependencies[f"gradle:{group}:{artifact}@{version}"] += 1
+                except Exception as e:
+                    logging.warning(f"Error parsing build.gradle at {path}: {e}")
+                    if debug:
+                        print(f"Error parsing build.gradle at {path}: {e}")
+        
+        # Look for build.gradle.kts files (Kotlin DSL)
+        for path, info in file_manifest.items():
+            path_str = str(path)
+            if path_str.endswith('build.gradle.kts') and not info.is_binary:
+                gradle_count += 1
+                try:
+                    content = info.content
+                    if content:
+                        # Extract implementation/compile dependencies
+                        for match in re.finditer(r'(implementation|compile)\([\'"](.*?)[\'"]', content):
+                            dep_type = match.group(1)
+                            dep_string = match.group(2)
+                            dependencies[f"gradle-kts:{dep_string}"] += 1
+                except Exception as e:
+                    logging.warning(f"Error parsing build.gradle.kts at {path}: {e}")
+                    if debug:
+                        print(f"Error parsing build.gradle.kts at {path}: {e}")
+        
+        logging.debug(f"Processed {package_json_count} package.json, {requirements_txt_count} requirements.txt, "
+                     f"{csproj_count} .csproj, {packages_config_count} packages.config, "
+                     f"{pom_xml_count} pom.xml, and {gradle_count} build.gradle files")
         
         # Format the dependencies as a string
         if dependencies:
@@ -346,9 +458,9 @@ def prepare_file_order_data(project_files: Dict[str, Dict], debug: bool = False,
         exports = getattr(info, 'exports', None) or []
         
         files_info[path] = {
-            "type": info.get('file_type', Path(path).suffix),
-            "size": info.get('size', 0),
-            "is_binary": info.get('is_binary', False),
+            "type": info.file_type if hasattr(info, 'file_type') and info.file_type else Path(path).suffix,
+            "size": info.size if hasattr(info, 'size') else 0,
+            "is_binary": info.is_binary if hasattr(info, 'is_binary') else False,
             "dependencies": list(deps),
             "exports": list(exports)
         }
@@ -380,7 +492,7 @@ def process_file_order_response(content: str, core_files: Dict[str, Dict], resou
             
             if valid_paths:
                 if debug and "reasoning" in result:
-                    reasoning = result.get("reasoning", "")
+                    reasoning = result["reasoning"] if "reasoning" in result else ""
                     print(f"Ordering reasoning: {reasoning[:100]}..." if len(reasoning) > 100 else reasoning)
                 
                 # Append resource files at the end

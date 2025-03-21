@@ -268,90 +268,170 @@ class BedrockClient(BaseLLMClient):
                 desc="Generating project overview",
                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt}'
             ) as pbar:
-                # Create progress update task
-                update_task = asyncio.create_task(progress_tracker.update_progress_async(pbar))
-                
-                # Get project name
-                project_name = self._derive_project_name(file_manifest)
-                
-                # Get detected technologies
-                tech_report = self._find_common_dependencies(file_manifest)
-                
-                # Get key components
-                key_components = self._identify_key_components(file_manifest)
-                
-                # Get template content
-                template_content = self.prompt_template.get_template("project_overview").format(
-                    project_name=project_name,
-                    file_count=len(file_manifest),
-                    key_components=key_components
-                )
-                
-                # Get messages
-                messages = MessageManager.get_project_overview_messages(
-                    self.project_structure,
-                    tech_report,
-                    template_content
-                )
-                
-                # Check token limits and truncate if needed
-                if self.token_counter:
-                    messages = MessageManager.check_and_truncate_messages(
-                        messages, 
-                        self.token_counter, 
-                        self.model_id
+                try:
+                    # Create progress update task
+                    update_task = asyncio.create_task(progress_tracker.update_progress_async(pbar))
+                    
+                    # Get project name
+                    logging.debug("Deriving project name...")
+                    project_name = self._derive_project_name(file_manifest)
+                    logging.debug(f"Project name derived: {project_name}")
+
+                    # Update progress
+                    pbar.update(10)
+                    
+                    # Get detected technologies
+                    logging.debug("Finding common dependencies...")
+                    try:
+                        tech_report = self._find_common_dependencies(file_manifest)
+                        logging.debug(f"Dependencies found, report length: {len(tech_report)}")
+                    except Exception as e:
+                        logging.error(f"Error in _find_common_dependencies: {str(e)}")
+                        logging.error(f"Exception type: {type(e)}")
+                        logging.error(f"Exception traceback: {traceback.format_exc()}")
+                        tech_report = "No dependencies detected."
+
+                    # Update progress
+                    pbar.update(20)
+                    
+                    # Get key components
+                    logging.debug("Identifying key components...")
+                    try:
+                        key_components = self._identify_key_components(file_manifest)
+                        logging.debug(f"Key components identified, report length: {len(key_components)}")
+                    except Exception as e:
+                        logging.error(f"Error in _identify_key_components: {str(e)}")
+                        logging.error(f"Exception type: {type(e)}")
+                        logging.error(f"Exception traceback: {traceback.format_exc()}")
+                        key_components = "No key components identified."
+                    
+                    # Update progress
+                    pbar.update(30)
+
+                    # Get template content
+                    template_content = self.prompt_template.get_template("project_overview").format(
+                        project_name=project_name,
+                        file_count=len(file_manifest),
+                        key_components=key_components
                     )
-                
-                # Extract system and user content
-                system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
-                user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
-                
-                # Update progress
-                pbar.update(20)
-                
-                # Use the helper method to create and invoke the request
-                content = await self._create_and_invoke_bedrock_request(system_content, user_content)
-                
-                # Update progress
-                pbar.update(70)
-                
-                # Update progress
-                pbar.update(10)
-                
-                # Cancel progress update task
-                update_task.cancel()
-                
-                # Fix any markdown issues
-                fixed_content = self._fix_markdown_issues(content)
-                
-                return fixed_content
-                
+
+                    # Update progress
+                    pbar.update(40)
+                    
+                    # Get messages
+                    messages = MessageManager.get_project_overview_messages(
+                        self.project_structure,
+                        tech_report,
+                        template_content
+                    )
+                    
+                    # Update progress
+                    pbar.update(50)
+                    
+                    # Check token limits and truncate if needed
+                    if self.token_counter:
+                        messages = MessageManager.check_and_truncate_messages(
+                            messages,
+                            self.token_counter,
+                            self.model_id
+                        )
+
+                    # Update progress
+                    pbar.update(60)
+                    
+                    # Extract system and user content
+                    system_content = next((msg["content"] for msg in messages if msg["role"] == "system"), "")
+                    user_content = next((msg["content"] for msg in messages if msg["role"] == "user"), "")
+                    
+                    # Use the helper method to create and invoke the request
+                    content = await self._create_and_invoke_bedrock_request(system_content, user_content)
+                    
+                    # Update progress
+                    pbar.update(70)
+                    
+                    # Fix any markdown issues
+                    fixed_content = self._fix_markdown_issues(content)
+
+                    # Update progress
+                    pbar.update(80)
+                    
+                    return fixed_content
+                except Exception as e:
+                    if self.debug:
+                        print(f"\nError generating overview: {str(e)}")
+                    logging.error(f"Error in generate_project_overview: {e}")
+                    return f"This is a software project containing {len(file_manifest)} files."
+                finally:
+                    # Update progress
+                    pbar.update(90)
+                    # Cancel progress update task
+                    if 'update_task' in locals():
+                        update_task.cancel()
         except Exception as e:
             if self.debug:
-                print(f"\nError generating overview: {str(e)}")
+                print(f"\nError setting up progress tracker: {str(e)}")
+            logging.error(f"Error in generate_project_overview setup: {e}")
+            return f"This is a software project containing {len(file_manifest)} files."
             raise
-    
     def _format_project_structure(self, file_manifest: dict) -> str:
         """Build a tree-like project structure string."""
-        return format_project_structure(file_manifest, self.debug)
-    
+        try:
+            result = format_project_structure(file_manifest, self.debug)
+            # Ensure result is a string
+            if not isinstance(result, str):
+                logging.warning(f"format_project_structure returned non-string: {type(result)}")
+                return "Project structure not available."
+            return result
+        except Exception as e:
+            logging.error(f"Error in _format_project_structure: {e}")
+            return "Project structure not available."
     def _find_common_dependencies(self, file_manifest: dict) -> str:
         """Extract common dependencies from file manifest."""
-        return find_common_dependencies(file_manifest, self.debug)
+        try:
+            result = find_common_dependencies(file_manifest, self.debug)
+            # Ensure result is a string
+            if not isinstance(result, str):
+                logging.warning(f"find_common_dependencies returned non-string: {type(result)}")
+                return "No dependencies detected."
+            return result
+        except Exception as e:
+            logging.error(f"Error in _find_common_dependencies: {e}")
+            return "No dependencies detected."
     
     def _identify_key_components(self, file_manifest: dict) -> str:
         """Identify key components from file manifest."""
-        return identify_key_components(file_manifest, self.debug)
+        try:
+            result = identify_key_components(file_manifest, self.debug)
+            # Ensure result is a string
+            if not isinstance(result, str):
+                logging.warning(f"identify_key_components returned non-string: {type(result)}")
+                return "No key components identified."
+            return result
+        except Exception as e:
+            logging.error(f"Error in _identify_key_components: {e}")
+            return "No key components identified."
     
     def _derive_project_name(self, file_manifest: dict) -> str:
         """Derive project name from repository structure."""
-        # Create a temporary analyzer instance to use its method
-        from src.utils.config_class import ScribeConfig
-        config = ScribeConfig()
-        config.debug = self.debug
-        temp_analyzer = CodebaseAnalyzer(Path("."), config)
-        temp_analyzer.file_manifest = file_manifest
-        return temp_analyzer.derive_project_name(self.debug)
+        try:
+            # Create a temporary analyzer instance to use its method
+            from src.utils.config_class import ScribeConfig
+            config = ScribeConfig()
+            config.debug = self.debug
+            temp_analyzer = CodebaseAnalyzer(Path("."), config)
+            temp_analyzer.file_manifest = file_manifest
+            
+            result = temp_analyzer.derive_project_name(self.debug)
+            
+            # Ensure result is a string
+            if not isinstance(result, str) or not result.strip():
+                logging.warning(f"derive_project_name returned invalid result: {result}")
+                return "Unknown Project"
+                
+            return result
+        except Exception as e:
+            logging.error(f"Error in _derive_project_name: {e}")
+            return "Unknown Project"
     
     def set_project_structure(self, structure: str) -> None:
         """

@@ -82,12 +82,24 @@ class MessageManager:
         Raises:
             ValueError: If any of the input parameters are empty or not strings
         """
+        # Log input parameters
+        logging.debug(f"get_project_overview_messages called with:")
+        logging.debug(f"project_structure type: {type(project_structure)}, length: {len(project_structure) if isinstance(project_structure, str) else 'N/A'}")
+        logging.debug(f"tech_report type: {type(tech_report)}, value: {tech_report}")
+        logging.debug(f"template_content type: {type(template_content)}, length: {len(template_content) if isinstance(template_content, str) else 'N/A'}")
+        
         # Validate inputs
         if not isinstance(project_structure, str) or not project_structure.strip():
+            logging.error("Project structure validation failed")
             raise ValueError("Project structure must be a non-empty string")
-        if not isinstance(tech_report, str) or not tech_report.strip():
-            raise ValueError("Tech report must be a non-empty string")
+        
+        # Ensure tech_report is a string
+        if not isinstance(tech_report, str):
+            logging.warning(f"tech_report is not a string, it's a {type(tech_report)}")
+            tech_report = "No dependencies detected."
+        
         if not isinstance(template_content, str) or not template_content.strip():
+            logging.error("Template content validation failed")
             raise ValueError("Template content must be a non-empty string")
         system_content = f"""Project Structure:
 {project_structure}
