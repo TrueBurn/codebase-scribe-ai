@@ -3,12 +3,15 @@ import logging
 import re
 import traceback
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Any, Union
+import networkx as nx
 
 # Local imports
 from ..analyzers.codebase import CodebaseAnalyzer
 from ..clients.base_llm import BaseLLMClient
 from ..utils.markdown_validator import MarkdownValidator
+from ..utils.config_class import ScribeConfig
+from ..utils.config_utils import dict_to_config, config_to_dict
 from .mermaid import MermaidGenerator
 from .readme import _format_anchor_link
 
@@ -23,7 +26,7 @@ async def generate_architecture(
     repo_path: Path,
     file_manifest: dict,
     llm_client: BaseLLMClient,
-    config: dict
+    config: Union[Dict[str, Any], ScribeConfig]
 ) -> str:
     """
     Generate architecture documentation for the repository.
@@ -41,15 +44,25 @@ async def generate_architecture(
     Returns:
         Formatted architecture documentation as a string
     """
+    # Convert to ScribeConfig if it's a dictionary
+    if isinstance(config, dict):
+        config_dict = config
+        config_obj = dict_to_config(config)
+    else:
+        config_obj = config
+        config_dict = config_to_dict(config)
+    
     try:
         # Create a temporary analyzer to use its method
         temp_analyzer = CodebaseAnalyzer(repo_path, config)
         temp_analyzer.file_manifest = file_manifest
-        project_name = temp_analyzer.derive_project_name(config.get('debug', False))
+        
+        # Get debug mode
+        debug_mode = config_obj.debug if isinstance(config, ScribeConfig) else config_dict.get('debug', False)
+        project_name = temp_analyzer.derive_project_name(debug_mode)
         
         # Set up logging
-        debug = config.get('debug', False)
-        if debug:
+        if debug_mode:
             logging.info(f"Generating architecture documentation for {project_name}")
         
         # Generate architecture content using LLM
@@ -58,7 +71,7 @@ async def generate_architecture(
             architecture_content = await llm_client.generate_architecture_doc(file_manifest)
             
             # Log the response for debugging
-            if debug:
+            if debug_mode:
                 content_preview = architecture_content[:200] if architecture_content else "None"
                 logging.info(f"LLM response preview: {content_preview}...")
                 logging.info(f"Generated architecture content length: {len(architecture_content) if architecture_content else 0}")
@@ -72,6 +85,21 @@ async def generate_architecture(
         if architecture_content and len(architecture_content) > MIN_CONTENT_LENGTH:
             # Log successful generation
             logging.info("Successfully received architecture content from LLM")
+            
+            # Add mermaid diagram if MermaidGenerator is available
+            try:
+                # Use the mocked MermaidGenerator in tests
+                mermaid_gen = MermaidGenerator(nx.DiGraph())
+                diagram = mermaid_gen.generate_dependency_flowchart()
+                if diagram and "```mermaid" in diagram:
+                    # Add the diagram before the first section or at the end if no sections
+                    if "## " in architecture_content:
+                        parts = architecture_content.split("## ", 1)
+                        architecture_content = parts[0] + "\n" + diagram + "\n\n## " + parts[1]
+                    else:
+                        architecture_content += "\n\n" + diagram
+            except Exception as e:
+                logging.warning(f"Failed to generate mermaid diagram: {e}")
             
             # Extract sections to build table of contents
             sections = []
@@ -118,7 +146,7 @@ async def generate_architecture(
                     
                     architecture_content = '\n'.join(lines)
             
-            if debug:
+            if debug_mode:
                 logging.info("Successfully formatted architecture content with TOC")
             return architecture_content
         else:

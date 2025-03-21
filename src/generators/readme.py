@@ -2,13 +2,15 @@
 import logging
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 
 # Local imports
 from ..utils.markdown_validator import MarkdownValidator
 from ..utils.readability import ReadabilityScorer
 from ..clients.base_llm import BaseLLMClient
 from ..analyzers.codebase import CodebaseAnalyzer
+from ..utils.config_class import ScribeConfig
+from ..utils.config_utils import dict_to_config, config_to_dict
 
 # Constants for configuration
 # Thresholds for content length and quality checks
@@ -21,6 +23,48 @@ CONTENT_THRESHOLDS = {
     'license_info_length': 20,     # Minimum length for valid license info
     'readability_score_threshold': 40  # Threshold for readability warnings
 }
+
+def extract_license_info(repo_path: Path) -> str:
+    """
+    Extract license information from the repository.
+    
+    Args:
+        repo_path: Path to the repository
+        
+    Returns:
+        str: License information or default text
+    """
+    # Check for LICENSE file
+    license_file = repo_path / "LICENSE"
+    if license_file.exists():
+        # Read first 10 lines to get license type
+        with open(license_file, 'r', encoding='utf-8', errors='ignore') as f:
+            license_text = ''.join(f.readlines()[:10])
+            
+        # Try to identify common licenses
+        if "MIT" in license_text:
+            return "MIT License"
+        elif "Apache" in license_text:
+            return "Apache License"
+        elif "GPL" in license_text or "GNU GENERAL PUBLIC LICENSE" in license_text:
+            return "GPL License"
+        else:
+            return "Custom License (see LICENSE file for details)"
+    
+    # Check for license information in package.json
+    package_json = repo_path / "package.json"
+    if package_json.exists():
+        try:
+            import json
+            with open(package_json, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if "license" in data:
+                    return f"{data['license']} License"
+        except:
+            pass
+    
+    # Default license text
+    return "No license information found. Consider adding a LICENSE file."
 
 # LLM instruction phrases that should be removed from generated content
 INSTRUCTION_PHRASES = [
@@ -36,7 +80,7 @@ async def generate_readme(
     llm_client: BaseLLMClient,
     file_manifest: dict,
     file_summaries: dict,
-    config: dict,
+    config: Union[Dict[str, Any], ScribeConfig],
     analyzer: CodebaseAnalyzer,
     output_dir: str,
     existing_readme: Optional[str] = None,
@@ -59,9 +103,18 @@ async def generate_readme(
     Returns:
         str: Generated README content
     """
+    # Convert to ScribeConfig if it's a dictionary
+    if isinstance(config, dict):
+        config_dict = config
+        config_obj = dict_to_config(config)
+    else:
+        config_obj = config
+        config_dict = config_to_dict(config)
+    
     try:
         # Use the analyzer's method to get a consistent project name
-        project_name = analyzer.derive_project_name(config.get('debug', False))
+        debug_mode = config_obj.debug if isinstance(config, ScribeConfig) else config_dict.get('debug', False)
+        project_name = analyzer.derive_project_name(debug_mode)
         logging.info(f"Using project name: {project_name}")
         
         # Check if we should enhance existing README or create a new one
@@ -79,21 +132,24 @@ async def generate_readme(
         logging.error(f"Error generating README: {e}")
         return generate_fallback_readme(repo_path, architecture_file_exists)
 
-def should_enhance_existing_readme(repo_path: Path, config: dict) -> bool:
+def should_enhance_existing_readme(repo_path: Path, config: Union[Dict[str, Any], ScribeConfig]) -> bool:
     """
     Determine if we should enhance an existing README.
     
     Args:
         repo_path: Path to the repository
-        config: Configuration dictionary
+        config: Configuration (dictionary or ScribeConfig)
         
     Returns:
         bool: True if we should enhance existing README
     """
     # Check if we should preserve existing content
-    preserve_existing = config.get('preserve_existing', True)  # Default to True
+    if isinstance(config, ScribeConfig):
+        preserve_existing = config.preserve_existing if hasattr(config, 'preserve_existing') else True
+    else:
+        preserve_existing = config.get('preserve_existing', True)  # Default to True
     readme_path = repo_path / 'README.md'
-    
+    # Check if README exists and preserve_existing is True
     if not (preserve_existing and readme_path.exists()):
         return False
         
@@ -167,7 +223,7 @@ async def generate_new_readme(
     file_manifest: dict,
     project_name: str,
     architecture_file_exists: bool,
-    config: dict
+    config: Union[Dict[str, Any], ScribeConfig]
 ) -> str:
     """
     Generate a new README from scratch.

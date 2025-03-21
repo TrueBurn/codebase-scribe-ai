@@ -12,6 +12,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Dict, Any, Union
 
+# Local imports
+from .config_class import ScribeConfig
+from .config_utils import dict_to_config, config_to_dict
+
 @dataclass
 class CacheEntry:
     """Represents a cached item with metadata."""
@@ -119,6 +123,9 @@ class CacheManager:
     content-based invalidation using file hashing.
     """
     
+    # Track open connections to ensure proper cleanup
+    _open_connections = []
+    
     # Default cache directory name in user's home directory
     DEFAULT_GLOBAL_CACHE_DIR = '.readme_generator_cache'
     
@@ -128,36 +135,64 @@ class CacheManager:
     # Default hash algorithm
     DEFAULT_HASH_ALGORITHM = 'md5'
     
-    def __init__(self, enabled: bool = True, repo_identifier: str = None, repo_path: Optional[Path] = None, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, enabled: bool = True, repo_identifier: str = None, repo_path: Optional[Path] = None, config: Optional[Union[Dict[str, Any], ScribeConfig]] = None):
         """Initialize the cache manager.
         
         Args:
             enabled: Whether caching is enabled
             repo_identifier: Unique identifier for the repository (e.g., GitHub repo name)
             repo_path: Path to the repository
-            config: Configuration dictionary with cache settings
+            config: Configuration (dictionary or ScribeConfig) with cache settings
         """
         self.enabled = enabled
         self.repo_identifier = repo_identifier
         self.debug = False  # Debug flag
         self._repo_path = repo_path  # Store the repository path
         
+        # Convert to ScribeConfig if it's a dictionary
+        if isinstance(config, dict):
+            config_dict = config
+            config_obj = dict_to_config(config) if config else None
+        elif isinstance(config, ScribeConfig):
+            config_obj = config
+            config_dict = config_to_dict(config)
+        else:
+            config_dict = None
+            config_obj = None
+        
         # Get cache configuration
-        self.cache_config = config.get('cache', {}) if config else {}
-        cache_location = self.cache_config.get('location', 'repo')
-        cache_dir_name = self.cache_config.get('directory', self.DEFAULT_REPO_CACHE_DIR)
-        self.hash_algorithm = self.cache_config.get('hash_algorithm', self.DEFAULT_HASH_ALGORITHM)
+        if config_obj:
+            # Use ScribeConfig
+            self.cache_config = config_dict.get('cache', {}) if config_dict else {}
+            cache_location = config_obj.cache.location if config_obj else 'repo'
+            cache_dir_name = config_obj.cache.directory if config_obj else self.DEFAULT_REPO_CACHE_DIR
+            self.hash_algorithm = config_obj.cache.hash_algorithm if config_obj else self.DEFAULT_HASH_ALGORITHM
+        else:
+            # Use dictionary or defaults
+            self.cache_config = config_dict.get('cache', {}) if config_dict else {}
+            cache_location = self.cache_config.get('location', 'repo')
+            cache_dir_name = self.cache_config.get('directory', self.DEFAULT_REPO_CACHE_DIR)
+            self.hash_algorithm = self.cache_config.get('hash_algorithm', self.DEFAULT_HASH_ALGORITHM)
         
         # Create cache directory based on location setting
         if cache_location == 'home' or not repo_path:
             # Use user's home directory
-            global_cache_dir = self.cache_config.get('global_directory', self.DEFAULT_GLOBAL_CACHE_DIR)
+            if config_obj:
+                global_cache_dir = config_obj.cache.global_directory
+            else:
+                global_cache_dir = self.cache_config.get('global_directory', self.DEFAULT_GLOBAL_CACHE_DIR)
             self.cache_dir = Path.home() / global_cache_dir
         else:
             # Use repository path with configured directory name
             self.cache_dir = repo_path / cache_dir_name
             
         os.makedirs(self.cache_dir, exist_ok=True)
+        
+        # Set debug flag from config if available
+        if config_obj:
+            self.debug = config_obj.debug
+        elif config_dict:
+            self.debug = config_dict.get('debug', False)
         
         # Initialize repo cache directory and db path
         if repo_identifier:
@@ -173,15 +208,19 @@ class CacheManager:
         
     def _init_db(self):
         """Initialize SQLite database for file caching."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS file_cache (
-                    file_path TEXT PRIMARY KEY,
-                    summary TEXT,
-                    timestamp REAL,
-                    content_hash TEXT
-                )
-            """)
+        conn = sqlite3.connect(self.db_path)
+        # Track this connection for proper cleanup
+        CacheManager._open_connections.append(conn)
+        
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS file_cache (
+                file_path TEXT PRIMARY KEY,
+                summary TEXT,
+                timestamp REAL,
+                content_hash TEXT
+            )
+        """)
+        conn.commit()
         
     def get_repo_cache_dir(self, repo_path: Optional[Path] = None) -> Path:
         """Get the cache directory for a repository."""
@@ -240,12 +279,20 @@ class CacheManager:
             
         try:
             # Clear the database
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute('DELETE FROM file_cache')
-                
+            conn = sqlite3.connect(self.db_path)
+            # Track this connection for proper cleanup
+            CacheManager._open_connections.append(conn)
+            
+            conn.execute('DELETE FROM file_cache')
+            conn.commit()
+            
             # Vacuum the database to reclaim space
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute('VACUUM')
+            conn.execute('VACUUM')
+            conn.commit()
+            
+            # Close connection immediately after use
+            conn.close()
+            CacheManager._open_connections.remove(conn)
                 
             print(f"Cache cleared for repository")
             
@@ -285,11 +332,17 @@ class CacheManager:
             cache_key = self._create_cache_key(file_path)
             content_hash = self._calculate_file_hash(file_path)
             
-            with sqlite3.connect(self.db_path) as conn:
-                conn.execute(
-                    'INSERT OR REPLACE INTO file_cache (file_path, summary, timestamp, content_hash) VALUES (?, ?, ?, ?)',
-                    (cache_key, summary, time.time(), content_hash)
-                )
+            conn = sqlite3.connect(self.db_path)
+            # Track this connection for proper cleanup
+            CacheManager._open_connections.append(conn)
+            
+            conn.execute(
+                'INSERT OR REPLACE INTO file_cache (file_path, summary, timestamp, content_hash) VALUES (?, ?, ?, ?)',
+                (cache_key, summary, time.time(), content_hash)
+            )
+            conn.commit()
+            conn.close()
+            CacheManager._open_connections.remove(conn)
             
             if self.debug:
                 print(f"Saved to cache: {cache_key}")
@@ -320,20 +373,27 @@ class CacheManager:
                 return None
             
             # Get from cache
-            with sqlite3.connect(self.db_path) as conn:
-                result = conn.execute(
-                    'SELECT summary FROM file_cache WHERE file_path = ?',
-                    (cache_key,)
-                ).fetchone()
-                
-                if result:
-                    if self.debug:
-                        print(f"Cache hit for: {cache_key}")
-                    return result[0]
-                else:
-                    if self.debug:
-                        print(f"Cache miss for: {cache_key}")
-                    return None
+            conn = sqlite3.connect(self.db_path)
+            # Track this connection for proper cleanup
+            CacheManager._open_connections.append(conn)
+            
+            result = conn.execute(
+                'SELECT summary FROM file_cache WHERE file_path = ?',
+                (cache_key,)
+            ).fetchone()
+            
+            # Close connection immediately after use
+            conn.close()
+            CacheManager._open_connections.remove(conn)
+            
+            if result:
+                if self.debug:
+                    print(f"Cache hit for: {cache_key}")
+                return result[0]
+            else:
+                if self.debug:
+                    print(f"Cache miss for: {cache_key}")
+                return None
         except Exception as e:
             if self.debug:
                 print(f"Error retrieving from cache: {e}")
@@ -398,15 +458,16 @@ class CacheManager:
             with open(file_path, 'rb') as f:
                 file_content = f.read()
                 
+            # Reset hash_algorithm to default if it's not one of the expected values
+            if self.hash_algorithm not in ['md5', 'sha1', 'sha256']:
+                self.hash_algorithm = self.DEFAULT_HASH_ALGORITHM
+                
             if self.hash_algorithm == 'md5':
                 file_hash = hashlib.md5(file_content).hexdigest()
             elif self.hash_algorithm == 'sha1':
                 file_hash = hashlib.sha1(file_content).hexdigest()
             elif self.hash_algorithm == 'sha256':
                 file_hash = hashlib.sha256(file_content).hexdigest()
-            else:
-                # Default to md5 if unknown algorithm specified
-                file_hash = hashlib.md5(file_content).hexdigest()
                 
             return file_hash
         except Exception as e:
@@ -428,19 +489,26 @@ class CacheManager:
             content_hash = self._calculate_file_hash(file_path)
             cache_key = self._create_cache_key(file_path)
             
-            with sqlite3.connect(self.db_path) as conn:
-                result = conn.execute(
-                    'SELECT content_hash FROM file_cache WHERE file_path = ?',
-                    (cache_key,)
-                ).fetchone()
+            conn = sqlite3.connect(self.db_path)
+            # Track this connection for proper cleanup
+            CacheManager._open_connections.append(conn)
+            
+            result = conn.execute(
+                'SELECT content_hash FROM file_cache WHERE file_path = ?',
+                (cache_key,)
+            ).fetchone()
+            
+            # Close connection immediately after use
+            conn.close()
+            CacheManager._open_connections.remove(conn)
 
-                if not result:
-                    if self.debug:
-                        print(f"No cache entry for: {cache_key}")
-                    return True
+            if not result:
+                if self.debug:
+                    print(f"No cache entry for: {cache_key}")
+                return True
 
-                cached_hash = result[0]
-                return content_hash != cached_hash
+            cached_hash = result[0]
+            return content_hash != cached_hash
         except Exception as e:
             if self.debug:
                 print(f"Error checking if file modified: {e}")
@@ -493,9 +561,31 @@ class CacheManager:
     @property
     def repo_path(self):
         return self._repo_path
-
+        
     @repo_path.setter
     def repo_path(self, path):
         self._repo_path = path
-        if self.debug:
+        
+    def close(self):
+        """Close all database connections to prevent file locking issues."""
+        for conn in CacheManager._open_connections[:]:
+            try:
+                conn.close()
+                CacheManager._open_connections.remove(conn)
+            except Exception:
+                pass  # Ignore errors during cleanup
+                
+    def __del__(self):
+        """Ensure connections are closed when the object is garbage collected."""
+        self.close()
+        
+    @classmethod
+    def close_all_connections(cls):
+        """Close all open database connections."""
+        for conn in cls._open_connections[:]:
+            try:
+                conn.close()
+                cls._open_connections.remove(conn)
+            except Exception:
+                pass  # Ignore errors during cleanup
             print(f"Cache: Set repository path to {path}") 

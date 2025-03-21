@@ -13,6 +13,8 @@ from pydantic import BaseModel
 # Local application imports
 from .base_llm import BaseLLMClient
 from .message_manager import MessageManager
+from src.utils.config_class import ScribeConfig
+from src.utils.config_utils import dict_to_config, config_to_dict
 from .llm_utils import (
     format_project_structure,
     find_common_dependencies,
@@ -62,27 +64,52 @@ class OllamaClient(BaseLLMClient):
         project_structure (str): String representation of project structure
     """
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Union[Dict[str, Any], ScribeConfig]):
         """
         Initialize the Ollama client.
         
         Args:
-            config: Configuration dictionary with Ollama-specific settings
+            config: Configuration (dictionary or ScribeConfig) with Ollama-specific settings
         """
         # Call parent class constructor
         super().__init__()
         
+        # Convert to ScribeConfig if it's a dictionary
+        if isinstance(config, dict):
+            config_dict = config
+            config_obj = dict_to_config(config)
+        else:
+            config_obj = config
+            config_dict = config_to_dict(config)
+        
         # Get Ollama config with defaults
-        ollama_config = config.get('ollama', {})
-        self.base_url = ollama_config.get('base_url', DEFAULT_BASE_URL)
-        self.max_tokens = ollama_config.get('max_tokens', DEFAULT_MAX_TOKENS)
-        self.retries = ollama_config.get('retries', DEFAULT_RETRIES)
-        self.retry_delay = ollama_config.get('retry_delay', DEFAULT_RETRY_DELAY)
-        self.timeout = ollama_config.get('timeout', DEFAULT_TIMEOUT)
-        self.temperature = ollama_config.get('temperature', DEFAULT_TEMPERATURE)
-        self.client = AsyncClient(host=self.base_url)
-        self.prompt_template = PromptTemplate(config.get('template_path'))
-        self.debug = config.get('debug', False)
+        if isinstance(config, dict):
+            ollama_config = config_dict.get('ollama', {})
+            self.base_url = ollama_config.get('base_url', DEFAULT_BASE_URL)
+            self.max_tokens = ollama_config.get('max_tokens', DEFAULT_MAX_TOKENS)
+            self.retries = ollama_config.get('retries', DEFAULT_RETRIES)
+            self.retry_delay = ollama_config.get('retry_delay', DEFAULT_RETRY_DELAY)
+        else:
+            self.base_url = config_obj.ollama.base_url
+            self.max_tokens = config_obj.ollama.max_tokens
+            self.retries = config_obj.ollama.retries
+            self.retry_delay = config_obj.ollama.retry_delay
+        # Set remaining properties
+        if isinstance(config, dict):
+            ollama_config = config_dict.get('ollama', {})
+            self.timeout = ollama_config.get('timeout', DEFAULT_TIMEOUT)
+            self.temperature = ollama_config.get('temperature', DEFAULT_TEMPERATURE)
+            self.client = AsyncClient(host=self.base_url)
+            self.prompt_template = PromptTemplate(config_dict.get('template_path'))
+        else:
+            self.timeout = config_obj.ollama.timeout
+            self.temperature = config_obj.ollama.temperature
+            self.client = AsyncClient(host=self.base_url)
+            self.prompt_template = PromptTemplate(config_dict.get('template_path'))
+        if isinstance(config, dict):
+            self.debug = config_dict.get('debug', False)
+        else:
+            self.debug = config_obj.debug
         self.available_models = []
         self.selected_model = None
     
@@ -142,8 +169,21 @@ class OllamaClient(BaseLLMClient):
         """
         try:
             response = await self.client.list()
-            models = response.models
-            return [model.model for model in models]
+            
+            # Handle both object-style response and dictionary-style response
+            if hasattr(response, 'models'):
+                # Object-style response (actual API)
+                models = response.models
+                return [model.model for model in models]
+            elif isinstance(response, dict) and 'models' in response:
+                # Dictionary-style response (for testing)
+                models = response['models']
+                return [model['name'] for model in models]
+            else:
+                if self.debug:
+                    print(f"Unexpected response format: {response}")
+                return []
+                
         except httpx.HTTPError as e:
             if self.debug:
                 print(f"HTTP error fetching models: {str(e)}")

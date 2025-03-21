@@ -1,20 +1,59 @@
 #!/usr/bin/env python3
 
+# Standard library imports
 import argparse
 import asyncio
-from pathlib import Path
-from typing import Dict, Optional
-import sys
 import logging
-import psutil
-import time
-import urllib3
-import warnings
 import os
 import shutil
-import urllib.parse
+import sys
+import time
+import warnings
+from pathlib import Path
+from typing import Dict, List, Optional, Any, Tuple
+
+# Third-party imports
+import psutil
+import urllib3
 from dotenv import load_dotenv
-import re
+
+# Local imports
+from src.analyzers.codebase import CodebaseAnalyzer
+from src.clients.base_llm import BaseLLMClient
+from src.clients.llm_factory import LLMClientFactory
+from src.generators.architecture import generate_architecture
+from src.generators.readme import generate_readme
+from src.models.file_info import FileInfo
+from src.utils.badges import generate_badges
+from src.utils.cache import CacheManager
+from src.utils.cache_utils import display_cache_stats, display_github_cache_stats
+from src.utils.config_utils import load_config, update_config_with_args, config_to_dict
+from src.utils.config_class import ScribeConfig
+from src.utils.doc_utils import add_ai_attribution
+from src.utils.exceptions import (
+    ScribeError,
+    ConfigurationError,
+    RepositoryError,
+    FileProcessingError,
+    LLMError,
+    GitHubError
+)
+from src.utils.github_utils import (
+    is_valid_github_url,
+    clone_github_repository,
+    create_git_branch,
+    commit_documentation_changes,
+    push_branch_to_remote,
+    create_pull_request,
+    extract_repo_info,
+    prepare_github_branch
+)
+from src.utils.progress_utils import (
+    create_file_processing_progress_bar,
+    create_optimization_progress_bar,
+    create_documentation_progress_bar
+)
+from src.utils.progress import ProgressTracker
 
 # Load environment variables from .env file
 load_dotenv()
@@ -26,34 +65,13 @@ warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWar
 # Disable bytecode caching
 sys.dont_write_bytecode = True
 
-from src.utils.config import load_config
-from src.analyzers.codebase import CodebaseAnalyzer
-from src.clients.ollama import OllamaClient
-from src.generators.readme import generate_readme
-from src.generators.architecture import generate_architecture
-from src.utils.cache import CacheManager
-from src.utils.progress import ProgressTracker
-from src.models.file_info import FileInfo
-from src.clients.llm_factory import LLMClientFactory
-from src.clients.base_llm import BaseLLMClient
-
-# Import the GitHub utilities
-from src.utils.github_utils import (
-    is_valid_github_url,
-    clone_github_repository,
-    create_git_branch,
-    commit_documentation_changes,
-    push_branch_to_remote,
-    create_pull_request,
-    extract_repo_info,
-    prepare_github_branch
-)
-
-# Import the new badges utility
-from src.utils.badges import generate_badges
-
-def setup_logging(debug=False, log_to_file=True):
-    """Configure logging based on debug flag."""
+def setup_logging(debug: bool = False, log_to_file: bool = True) -> None:
+    """Configure logging based on debug flag.
+    
+    Args:
+        debug: If True, sets logging level to DEBUG, otherwise INFO
+        log_to_file: If True, logs to both file and console, otherwise just console
+    """
     log_level = logging.DEBUG if debug else logging.INFO
     
     # Create logs directory if it doesn't exist
@@ -83,84 +101,28 @@ def setup_logging(debug=False, log_to_file=True):
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
 
-async def process_file(file_info: FileInfo, repo_path: Path, llm_client: BaseLLMClient, cache: Optional[CacheManager] = None) -> Optional[str]:
-    """Process a single file with the LLM."""
-    try:
-        file_path = file_info.path
-        
-        # Check cache first
-        if cache and cache.enabled:
-            cached_summary = cache.get_cached_summary(repo_path / file_path)
-            if cached_summary:
-                return cached_summary
-        
-        # If not in cache, generate with LLM
-        content = file_info.content
-        if not content:
-            return None
-            
-        # Generate summary using LLM
-        prompt = f"""
-        File: {file_path}
-        
-        Content:
-        ```
-        {content}
-        ```
-        
-        Please provide a concise summary of this file's purpose and functionality.
-        """
-        
-        # Use the LLM client to generate the summary
-        summary = await llm_client.generate_summary(prompt)
-        
-        # Cache the result if caching is enabled
-        if cache and cache.enabled and summary:
-            cache.save_summary(repo_path / file_path, summary)
-            
-        return summary
-        
-    except Exception as e:
-        logging.error(f"Error processing file {file_path}: {e}")
-        return None
-
-def calculate_max_concurrent() -> int:
-    """Calculate optimal number of concurrent operations based on system resources."""
-    try:
-        # Get CPU count and available memory
-        cpu_count = psutil.cpu_count(logical=False) or 1  # Physical CPU count
-        memory_percent = psutil.virtual_memory().percent
-        
-        # Base concurrency on CPU count but reduce if memory usage is high
-        if memory_percent > 80:
-            return 1  # Sequential if memory pressure is high
-        elif memory_percent > 60:
-            return max(1, cpu_count // 2)  # Half of CPUs if moderate memory pressure
-        else:
-            return max(1, cpu_count)  # Use physical CPU count, minimum 1
-            
-    except Exception as e:
-        logging.warning(f"Error calculating concurrency, defaulting to 1: {e}")
-        return 1
+# Function moved: process_file is now a nested function within process_files
+# Function removed: calculate_max_concurrent was unused
 
 async def determine_processing_order(
     file_manifest: Dict[str, FileInfo],
-    ollama: OllamaClient
-) -> list[str]:
-    """Ask LLM to determine optimal file processing order based on project structure."""
+    llm_client: BaseLLMClient
+) -> List[str]:
+    """Ask LLM to determine optimal file processing order based on project structure.
+    
+    Args:
+        file_manifest: Dictionary mapping file paths to FileInfo objects
+        llm_client: LLM client to use for determining file order
+        
+    Returns:
+        List of file paths in the determined processing order
+        
+    Raises:
+        LLMError: If there's an error with the LLM client
+    """
     logging.info(f"Starting file ordering optimization for {len(file_manifest)} files")
     
-    # Get progress tracker instance
-    progress_tracker = ProgressTracker.get_instance(Path("."))
-    with progress_tracker.progress_bar(
-        desc="Determining optimal file processing order",
-        total=5,  # Five stages: start, filtering, request, parsing, validation
-        unit="step",
-        ncols=150,  # Increased width from 100 to 150
-        bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} steps {elapsed}',
-        mininterval=0.1,
-        colour='cyan'
-    ) as pbar:
+    with create_optimization_progress_bar(Path(".")) as pbar:
         try:
             # Stage 1: Starting
             pbar.update(1)
@@ -170,7 +132,10 @@ async def determine_processing_order(
             start_time = time.time()
             
             # Get order from LLM
-            processing_order = await ollama.get_file_order(file_manifest)
+            try:
+                processing_order = await llm_client.get_file_order(file_manifest)
+            except Exception as e:
+                raise LLMError(f"Failed to get file order from LLM: {str(e)}") from e
             
             # Log after LLM call
             elapsed = time.time() - start_time
@@ -186,6 +151,7 @@ async def determine_processing_order(
             if missing_files:
                 print()  # Add newline before warning
                 logging.warning(f"Adding {len(missing_files)} files missing from LLM order")
+                processing_order.extend(sorted(missing_files))
                 for i, missing in enumerate(sorted(missing_files)[:5], 1):
                     logging.debug(f"  Missing file {i}: {missing}")
                 if len(missing_files) > 5:
@@ -230,196 +196,206 @@ async def process_files(
     llm_client: BaseLLMClient,
     analyzer: CodebaseAnalyzer,
     cache: Optional[CacheManager] = None,
-    config: Optional[dict] = None,
-    processing_order: Optional[list] = None
+    config: Optional[Dict[str, Any]] = None,
+    processing_order: Optional[List[str]] = None
 ) -> Dict[str, FileInfo]:
-    """Process files concurrently with progress tracking."""
-    # Use provided order or get all files if none provided
-    if processing_order is None:
-        processing_order = list(manifest.keys())
-    else:
-        # Ensure all files in manifest are included in processing_order
-        missing_files = set(manifest.keys()) - set(processing_order)
-        if missing_files:
-            logging.warning(f"Adding {len(missing_files)} files missing from processing order")
-            processing_order.extend(missing_files)
+    """Process files concurrently with progress tracking.
     
-    if not processing_order:
-        logging.warning("No files to process!")
-        return manifest
-    
-    # Start time for the entire processing operation
-    total_start_time = time.time()
-    
-    print(f"\nProcessing {len(processing_order)} files...")
-    
-    # If in test mode, limit to first 5 files while maintaining order
-    if config and config.get('test_mode'):
-        processing_order = processing_order[:5]
-        print(f"Test mode: Limited to first {len(processing_order)} files")
-        # Log which files will be processed
-        for i, file_path in enumerate(processing_order, 1):
-            logging.debug(f"{i}. Processing: {file_path}")
-    
-    # Get concurrency from config file based on the LLM provider
-    llm_provider = config.get('llm_provider', 'ollama').lower()
-    if llm_provider == 'bedrock':
-        concurrency = config.get('bedrock', {}).get('concurrency', 1)
-    else:
-        concurrency = config.get('ollama', {}).get('concurrency', 1)
-    
-    semaphore = asyncio.Semaphore(concurrency)
-    
-    # Create a new manifest with ordered files
-    ordered_manifest = {
-        path: manifest[path]
-        for path in processing_order
-    }
-    
-    # Track cache statistics
-    cache_stats = {
-        "from_cache": 0,
-        "from_llm": 0,
-        "skipped": 0
-    }
-    
-    # File processing progress bar (Green)
-    # Get progress tracker instance
-    progress_tracker = ProgressTracker.get_instance(repo_path)
-    with progress_tracker.progress_bar(
-        total=len(ordered_manifest),
-        desc=f"Analyzing files{' (sequential)' if concurrency == 1 else f' (max {concurrency} concurrent)'}",
-        unit="file",
-        ncols=150,
-        bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]',
-        colour='green',
-        position=0
-    ) as pbar:
-        # Process binary files separately (they don't need LLM)
-        binary_files = {path: info for path, info in ordered_manifest.items() if info.is_binary}
-        for file_path, file_info in binary_files.items():
-            cache_stats["skipped"] += 1
-            pbar.update(1)
+    Args:
+        manifest: Dictionary mapping file paths to FileInfo objects
+        repo_path: Path to the repository
+        llm_client: LLM client to use for generating summaries
+        analyzer: CodebaseAnalyzer instance
+        cache: Optional CacheManager instance
+        config: Optional configuration dictionary
+        processing_order: Optional list of file paths in the desired processing order
         
-        # Process non-binary files concurrently
-        non_binary_files = {path: info for path, info in ordered_manifest.items() if not info.is_binary}
+    Returns:
+        Dictionary mapping file paths to processed FileInfo objects
         
-        # Check which files are already in cache - only if cache is enabled AND no-cache flag is not set
-        cache_enabled = cache and cache.enabled and not config.get('no_cache', False)
-        if cache_enabled:
-            cached_files = {}
-            for file_path, file_info in non_binary_files.items():
+    Raises:
+        FileProcessingError: If there's an error processing files
+    """
+    
+    async def process_file(file_info: FileInfo, repo_path: Path, llm_client: BaseLLMClient, cache: Optional[CacheManager] = None) -> Optional[str]:
+        """Process a single file with the LLM.
+        
+        Args:
+            file_info: FileInfo object for the file to process
+            repo_path: Path to the repository
+            llm_client: LLM client to use for generating summaries
+            cache: Optional CacheManager instance
+            
+        Returns:
+            Generated summary or None if processing failed
+            
+        Raises:
+            LLMError: If there's an error with the LLM client
+        """
+        try:
+            file_path = file_info.path
+            
+            # Check cache first
+            if cache and cache.enabled:
                 cached_summary = cache.get_cached_summary(repo_path / file_path)
                 if cached_summary:
-                    file_info.summary = cached_summary
-                    file_info.from_cache = True
-                    cached_files[file_path] = file_info
-                    cache_stats["from_cache"] += 1
-                    pbar.update(1)
+                    return cached_summary
             
-            # Remove cached files from the processing list
-            for file_path in cached_files:
-                non_binary_files.pop(file_path)
-                ordered_manifest[file_path] = cached_files[file_path]
-        
-        # Process remaining files concurrently
-        if non_binary_files:
-            cache_stats["from_llm"] += len(non_binary_files)
-            
-            # Create a task for each file and process concurrently
-            tasks = []
-            for file_path, file_info in non_binary_files.items():
-                async def process_and_update(path, info):
-                    try:
-                        summary = await process_file(info, repo_path, llm_client, cache if cache_enabled else None)
-                        if summary:
-                            info.summary = summary
-                            info.from_cache = True
-                        pbar.update(1)
-                        return path, info
-                    except Exception as e:
-                        logging.error(f"Error processing {path}: {e}")
-                        pbar.update(1)
-                        return path, info
+            # If not in cache, generate with LLM
+            content = file_info.content
+            if not content:
+                return None
                 
-                task = asyncio.create_task(process_and_update(file_path, file_info))
-                tasks.append(task)
+            # Generate summary using LLM
+            prompt = f"""
+            File: {file_path}
             
-            # Wait for all tasks to complete
-            for completed_task in asyncio.as_completed(tasks):
-                file_path, file_info = await completed_task
-                ordered_manifest[file_path] = file_info
+            Content:
+            ```
+            {content}
+            ```
+            
+            Please provide a concise summary of this file's purpose and functionality.
+            """
+            
+            # Use the LLM client to generate the summary
+            try:
+                summary = await llm_client.generate_summary(prompt)
+            except Exception as e:
+                raise LLMError(f"Failed to generate summary for {file_path}: {str(e)}") from e
+            
+            # Cache the result if caching is enabled
+            if cache and cache.enabled and summary:
+                cache.save_summary(repo_path / file_path, summary)
+                
+            return summary
+            
+        except Exception as e:
+            logging.error(f"Error processing file {file_path}: {e}")
+            return None
     
-    # Display cache statistics with total processing time
-    total_elapsed = time.time() - total_start_time
-    total_mins, total_secs = divmod(int(total_elapsed), 60)
-    total_hrs, total_mins = divmod(total_mins, 60)
-    
-    if total_hrs > 0:
-        total_time_str = f"{total_hrs:02d}:{total_mins:02d}:{total_secs:02d}"
-    else:
-        total_time_str = f"{total_mins:02d}:{total_secs:02d}"
-    
-    if cache and cache.enabled:
-        total_processed = cache_stats["from_cache"] + cache_stats["from_llm"]
-        if total_processed > 0:
-            cache_percent = (cache_stats["from_cache"] / total_processed) * 100
-            print(f"\nCache statistics: {cache_stats['from_cache']} files from cache ({cache_percent:.1f}%), " +
-                  f"{cache_stats['from_llm']} files processed by LLM, {cache_stats['skipped']} binary files skipped")
-            print(f"Total processing time: {total_time_str}")
-    
-    # Add this after the file processing loop
-    # Print cache statistics more clearly
-    if config and config.get('github_repo_id'):
-        print("\nCache statistics for GitHub repository:")
-        print(f"Repository ID: {config['github_repo_id']}")
-        print(f"Cache directory: {analyzer.cache.get_repo_cache_dir()}")
+    # Helper function for processing a file and updating progress
+    async def process_and_update(path: str, info: FileInfo) -> Tuple[str, FileInfo]:
+        """Process a file and update progress.
         
-        # Check if cache is enabled
-        if analyzer.cache.enabled:
-            print("Cache is enabled")
+        Args:
+            path: Path to the file
+            info: FileInfo object for the file
+            
+        Returns:
+            Tuple of (path, updated FileInfo)
+        """
+        try:
+            summary = await process_file(info, repo_path, llm_client, cache if cache_enabled else None)
+            if summary:
+                info.summary = summary
+                info.from_cache = True
+            pbar.update(1)
+            return path, info
+        except Exception as e:
+            logging.error(f"Error processing {path}: {e}")
+            pbar.update(1)
+            return path, info
+    
+    try:
+        # Prepare processing order
+        if processing_order is None:
+            processing_order = list(manifest.keys())
         else:
-            print("Cache is disabled")
-            
-        # Print cache hit rate - fix the attribute access
-        cache_hits = sum(1 for file_info in analyzer.file_manifest.values() 
-                        if hasattr(file_info, 'from_cache') and file_info.from_cache)
-        total_files = len(analyzer.file_manifest)
-        cache_hit_rate = cache_hits / total_files * 100 if total_files > 0 else 0
+            # Ensure all files in manifest are included in processing_order
+            missing_files = set(manifest.keys()) - set(processing_order)
+            if missing_files:
+                logging.warning(f"Adding {len(missing_files)} files missing from processing order")
+                processing_order.extend(missing_files)
         
-        print(f"Cache hit rate: {cache_hits}/{total_files} files ({cache_hit_rate:.1f}%)")
-    
-    return ordered_manifest
-
-# Update the add_ai_attribution function to be simpler and more focused
-def add_ai_attribution(content: str, doc_type: str = "documentation", badges: str = "") -> str:
-    """Add AI attribution footer and badges to generated content if not already present."""
-    attribution_text = f"\n\n---\n_This {doc_type} was generated using AI analysis and may contain inaccuracies. Please verify critical information._"
-    
-    # Check if content already has an attribution footer
-    if "_This " in content and ("generated" in content.lower() or "enhanced" in content.lower()) and "AI" in content:
-        # Already has attribution, just add badges if needed
-        if badges and "![" not in content[:500]:  # Only add badges if they don't exist in the first 500 chars
-            # Find the title line
-            title_match = re.search(r"^# (.+?)(?:\n|$)", content)
-            if title_match:
-                # Insert badges after the title
-                title_end = title_match.end()
-                content = content[:title_end] + "\n\n" + badges + "\n" + content[title_end:]
-        return content
-    
-    # Add badges after the title if provided
-    if badges:
-        title_match = re.search(r"^# (.+?)(?:\n|$)", content)
-        if title_match:
-            # Insert badges after the title
-            title_end = title_match.end()
-            content = content[:title_end] + "\n\n" + badges + "\n" + content[title_end:]
-    
-    # Add the attribution
-    return content + attribution_text
+        if not processing_order:
+            logging.warning("No files to process!")
+            return manifest
+        
+        # Start time for the entire processing operation
+        total_start_time = time.time()
+        
+        print(f"\nProcessing {len(processing_order)} files...")
+        
+        # If in test mode, limit to first 5 files while maintaining order
+        if config and config.get('test_mode'):
+            processing_order = processing_order[:5]
+            print(f"Test mode: Limited to first {len(processing_order)} files")
+            # Log which files will be processed
+            for i, file_path in enumerate(processing_order, 1):
+                logging.debug(f"{i}. Processing: {file_path}")
+        
+        # Get concurrency setting
+        concurrency = 1
+        if config:
+            scribe_config = ScribeConfig.from_dict(config)
+            concurrency = scribe_config.get_concurrency()
+        
+        # Create a new manifest with ordered files
+        ordered_manifest = {path: manifest[path] for path in processing_order}
+        
+        # Track cache statistics
+        cache_stats = {"from_cache": 0, "from_llm": 0, "skipped": 0}
+        
+        # Create progress bar
+        with create_file_processing_progress_bar(repo_path, len(ordered_manifest), concurrency) as pbar:
+            # Process binary files separately (they don't need LLM)
+            binary_files = {path: info for path, info in ordered_manifest.items() if info.is_binary}
+            for file_path, file_info in binary_files.items():
+                cache_stats["skipped"] += 1
+                pbar.update(1)
+            
+            # Process non-binary files concurrently
+            non_binary_files = {path: info for path, info in ordered_manifest.items() if not info.is_binary}
+            
+            # Check which files are already in cache - only if cache is enabled AND no-cache flag is not set
+            cache_enabled = cache and cache.enabled and not (config and config.get('no_cache', False))
+            if cache_enabled:
+                cached_files = {}
+                for file_path, file_info in non_binary_files.items():
+                    cached_summary = cache.get_cached_summary(repo_path / file_path)
+                    if cached_summary:
+                        file_info.summary = cached_summary
+                        file_info.from_cache = True
+                        cached_files[file_path] = file_info
+                        cache_stats["from_cache"] += 1
+                        pbar.update(1)
+                
+                # Remove cached files from the processing list
+                for file_path in cached_files:
+                    non_binary_files.pop(file_path)
+                    ordered_manifest[file_path] = cached_files[file_path]
+            
+            # Process remaining files concurrently
+            if non_binary_files:
+                cache_stats["from_llm"] += len(non_binary_files)
+                
+                # Create a task for each file and process concurrently
+                tasks = []
+                for file_path, file_info in non_binary_files.items():
+                    task = asyncio.create_task(process_and_update(file_path, file_info))
+                    tasks.append(task)
+                
+                # Wait for all tasks to complete
+                for completed_task in asyncio.as_completed(tasks):
+                    file_path, file_info = await completed_task
+                    ordered_manifest[file_path] = file_info
+        
+        # Display cache statistics
+        total_elapsed = time.time() - total_start_time
+        display_cache_stats(cache_stats, total_elapsed, cache and cache.enabled)
+        
+        # Display GitHub repository cache statistics
+        display_github_cache_stats(config, analyzer)
+        
+        return ordered_manifest
+        
+    except Exception as e:
+        raise FileProcessingError(f"Error processing files: {str(e)}") from e
+# Function moved to src/utils/doc_utils.py
 
 async def main():
+    """Main entry point for the codebase-scribe tool."""
     parser = argparse.ArgumentParser(description='Generate documentation for a code repository')
     
     # Create a mutually exclusive group for repo source
@@ -462,19 +438,15 @@ async def main():
     # Set up logging based on debug flag
     setup_logging(debug=args.debug, log_to_file=args.log_file)
     
-    # Load config and merge with command-line args
+    # Load config and update with command-line args
     config = load_config(args.config)
-    if args.debug:
-        config['debug'] = True
+    config = update_config_with_args(config, args)
+    
+    if config.debug:
         logging.debug("Debug mode enabled")
-    if args.test_mode:
-        config['test_mode'] = True
-    if args.no_cache:
-        config['no_cache'] = True
-    if args.optimize_order:
-        config['optimize_order'] = True
-    if args.llm_provider:
-        config['llm_provider'] = args.llm_provider
+    
+    # Convert to dictionary for backward compatibility with existing code
+    config_dict = config_to_dict(config)
     
     # Get GitHub token from args or environment
     github_token = args.github_token
@@ -535,7 +507,8 @@ async def main():
                 print(f"Repository cloned successfully to: {repo_path}")
                 
                 # Tell analyzer to use the stable repo ID for caching
-                config['github_repo_id'] = repo_id
+                config_dict['github_repo_id'] = repo_id
+                config = dict_to_config(config_dict)
             except Exception as e:
                 print(f"Error: {e}")
                 return
@@ -545,31 +518,30 @@ async def main():
         
         # Handle cache clearing first and exit
         if args.clear_cache:
-            analyzer = CodebaseAnalyzer(repo_path, config)
+            analyzer = CodebaseAnalyzer(repo_path, config_dict)
             analyzer.cache.clear_repo_cache()
             print(f"Cleared cache for repository: {repo_path.name}")
             
             # Also clear the global cache for this repository
-            from src.utils.cache import CacheManager
-            CacheManager.clear_all_caches(repo_path=repo_path, config=config)
+            CacheManager.clear_all_caches(repo_path=repo_path, config=config_dict)
             
             if temp_dir and not args.keep_clone:
                 shutil.rmtree(temp_dir, ignore_errors=True)
             return  # Exit after clearing cache
         
         # Initialize LLM client using factory
-        print(f"Initializing {config.get('llm_provider', 'ollama')} client...")
+        print(f"Initializing {config.llm_provider} client...")
         
         try:
             # Create and initialize the appropriate LLM client
-            llm_client = await LLMClientFactory.create_client(config)
+            llm_client = await LLMClientFactory.create_client(config_dict)
         except Exception as e:
             print(f"Failed to initialize LLM client: {e}")
             sys.exit(1)
         
         # Now start repository analysis
         print("\nInitializing repository analysis...")
-        analyzer = CodebaseAnalyzer(repo_path, config)
+        analyzer = CodebaseAnalyzer(repo_path, config_dict)
         
         # First analyze repository to get file manifest
         print("Analyzing repository structure...")
@@ -584,7 +556,7 @@ async def main():
         # Set project structure and get processing order
         llm_client.set_project_structure(manifest)
         processing_order = None
-        if config.get('optimize_order', False):
+        if config.optimize_order:
             print("Determining optimal file processing order...")
             logging.info(f"Starting file order optimization with {len(manifest)} files")
             optimization_start = time.time()
@@ -605,7 +577,7 @@ async def main():
             llm_client=llm_client,
             analyzer=analyzer,
             cache=analyzer.cache,
-            config=config,
+            config=config_dict,
             processing_order=processing_order
         )
 
@@ -628,7 +600,7 @@ async def main():
                 repo_path=repo_path,
                 file_manifest=processed_files,
                 llm_client=llm_client,
-                config=config
+                config=config_dict
             )
             
             # Create docs directory if it doesn't exist and write ARCHITECTURE.md
@@ -654,7 +626,7 @@ async def main():
                 llm_client=llm_client,
                 file_manifest=processed_files,
                 file_summaries=processed_files,
-                config=config,
+                config=config_dict,
                 analyzer=analyzer,
                 output_dir=output_dir,
                 architecture_file_exists=True
@@ -735,33 +707,28 @@ async def main():
         if temp_dir and not args.keep_clone and not (create_pr and args.keep_clone):
             print(f"Cleaning up temporary repository: {temp_dir}")
             try:
-                # First, make all files writable to ensure we can delete them
+                def make_writable(path):
+                    """Make a file or directory writable."""
+                    try:
+                        os.chmod(path, 0o777)
+                    except:
+                        pass  # Ignore errors and continue
+                
+                # Make all files and directories writable to ensure we can delete them
                 if os.path.exists(temp_dir):
                     for root, dirs, files in os.walk(temp_dir, topdown=False):
                         for file in files:
-                            file_path = os.path.join(root, file)
-                            try:
-                                # Make the file writable
-                                os.chmod(file_path, 0o777)
-                            except:
-                                pass  # Ignore errors and continue
-                        
-                        # Also make directories writable
+                            make_writable(os.path.join(root, file))
                         for dir_name in dirs:
-                            dir_path = os.path.join(root, dir_name)
-                            try:
-                                os.chmod(dir_path, 0o777)
-                            except:
-                                pass  # Ignore errors and continue
+                            make_writable(os.path.join(root, dir_name))
                 
-                # Now try to remove the directory
+                # Try to remove the directory
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 
-                # Check if directory still exists and try alternative method if needed
+                # If directory still exists, try platform-specific commands as a last resort
                 if os.path.exists(temp_dir):
                     print(f"Standard cleanup failed, trying alternative method...")
                     if os.name == 'nt':  # Windows
-                        # Use system command as last resort on Windows
                         os.system(f'rmdir /S /Q "{temp_dir}"')
                     else:  # Unix/Linux/Mac
                         os.system(f'rm -rf "{temp_dir}"')
@@ -770,4 +737,4 @@ async def main():
                 print(f"You may need to manually delete: {temp_dir}")
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

@@ -1,9 +1,12 @@
-from typing import Dict, Any, Type, Optional, ClassVar, Mapping
+from typing import Dict, Any, Type, Optional, ClassVar, Mapping, Union
 from .base_llm import BaseLLMClient
 from .ollama import OllamaClient
 from .bedrock import BedrockClient
 import logging
 from types import TracebackType
+
+from src.utils.config_class import ScribeConfig
+from src.utils.config_utils import config_to_dict, dict_to_config
 
 class LLMClientFactoryError(Exception):
     """Base exception for LLM client factory errors."""
@@ -70,12 +73,12 @@ class LLMClientFactory:
         logging.info(f"Registered new LLM client type: {provider_name}")
     
     @classmethod
-    def validate_config(cls, config: Dict[str, Any]) -> bool:
+    def validate_config(cls, config: Union[ScribeConfig, Dict[str, Any]]) -> bool:
         """
-        Validate the configuration dictionary.
+        Validate the configuration.
         
         Args:
-            config: The configuration dictionary
+            config: The configuration (ScribeConfig or dictionary)
             
         Returns:
             bool: True if configuration is valid
@@ -83,37 +86,32 @@ class LLMClientFactory:
         Raises:
             ConfigValidationError: If configuration is invalid
         """
-        if not isinstance(config, dict):
-            raise ConfigValidationError("Configuration must be a dictionary")
+        # Convert to ScribeConfig if it's a dictionary
+        if isinstance(config, dict):
+            try:
+                config = dict_to_config(config)
+            except Exception as e:
+                raise ConfigValidationError(f"Invalid configuration format: {e}")
+        elif not isinstance(config, ScribeConfig):
+            raise ConfigValidationError(f"Configuration must be a ScribeConfig instance or dictionary, got {type(config)}")
         
         # Check if provider is valid
-        provider = config.get('llm_provider', 'ollama').lower()
+        provider = config.llm_provider.lower()
         if provider not in cls._client_registry:
             raise ConfigValidationError(
                 f"Invalid provider: {provider}. "
                 f"Supported providers: {', '.join(cls._client_registry.keys())}"
             )
-            
-        # Provider-specific validation
-        if provider == 'bedrock':
-            bedrock_config = config.get('bedrock', {})
-            if not isinstance(bedrock_config, dict):
-                raise ConfigValidationError("Bedrock configuration must be a dictionary")
-                
-        elif provider == 'ollama':
-            ollama_config = config.get('ollama', {})
-            if not isinstance(ollama_config, dict):
-                raise ConfigValidationError("Ollama configuration must be a dictionary")
                 
         return True
     
     @classmethod
-    async def create_client(cls, config: Dict[str, Any]) -> BaseLLMClient:
+    async def create_client(cls, config: Union[ScribeConfig, Dict[str, Any]]) -> BaseLLMClient:
         """
         Create and initialize an LLM client based on configuration.
         
         Args:
-            config: Configuration dictionary with provider and client-specific settings
+            config: Configuration (ScribeConfig or dictionary) with provider and client-specific settings
             
         Returns:
             BaseLLMClient: Initialized LLM client
@@ -122,6 +120,13 @@ class LLMClientFactory:
             ConfigValidationError: If configuration is invalid
             ClientInitializationError: If client initialization fails
         """
+        # Convert to ScribeConfig if it's a dictionary
+        if isinstance(config, dict):
+            config_dict = config
+            config = dict_to_config(config)
+        else:
+            config_dict = config_to_dict(config)
+            
         # Validate configuration
         try:
             cls.validate_config(config)
@@ -129,21 +134,20 @@ class LLMClientFactory:
             logging.error(f"Configuration validation failed: {e}")
             raise
             
-        provider = config.get('llm_provider', 'ollama').lower()
+        provider = config.llm_provider.lower()
         
         # Add debug logging to see what provider is being selected
-        debug = config.get('debug', False)
-        if debug:
+        if config.debug:
             logging.info(f"Creating LLM client with provider: {provider}")
-            logging.info(f"Config keys: {list(config.keys())}")
+            logging.info(f"Config keys: {list(config_dict.keys())}")
         
         if provider == 'bedrock':
             try:
-                if debug:
+                if config.debug:
                     logging.info("Initializing Bedrock client...")
-                client = BedrockClient(config)
+                client = BedrockClient(config_dict)  # Pass dict for backward compatibility
                 await client.initialize()
-                if debug:
+                if config.debug:
                     logging.info("Bedrock client initialized successfully")
                 return client
             except Exception as e:
@@ -154,11 +158,11 @@ class LLMClientFactory:
                 provider = 'ollama'
         
         # Default to Ollama
-        if debug:
+        if config.debug:
             logging.info("Initializing Ollama client...")
             
         try:
-            client = OllamaClient(config)
+            client = OllamaClient(config_dict)  # Pass dict for backward compatibility
             await client.initialize()
             return client
         except Exception as e:

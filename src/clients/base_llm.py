@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List, Type, Union
 from ..utils.tokens import TokenCounter
+from ..utils.config_class import ScribeConfig
 
 class BaseLLMClient(ABC):
     """
@@ -22,6 +23,14 @@ class BaseLLMClient(ABC):
             # Implement other required methods
         
         # Usage
+        # With dictionary config
+        client = MyLLMClient(config_dict)
+        await client.initialize()
+        overview = await client.generate_project_overview(file_manifest)
+        
+        # Or with ScribeConfig
+        from src.utils.config_class import ScribeConfig
+        config = ScribeConfig.from_dict(config_dict)
         client = MyLLMClient(config)
         await client.initialize()
         overview = await client.generate_project_overview(file_manifest)

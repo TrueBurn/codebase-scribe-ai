@@ -128,30 +128,45 @@ def test_memory_cache_operations():
     # Clear the cache
     memory_cache.clear()
     assert memory_cache.get("test_key") is None
-
 def test_calculate_file_hash(cache_manager, test_file):
     """Test file hash calculation with different algorithms"""
+    # Set the hash algorithm to md5 explicitly
+    cache_manager.hash_algorithm = 'md5'
+    assert cache_manager.hash_algorithm == 'md5'
+    
+    # Calculate hashes directly with hashlib for comparison
+    with open(test_file, 'rb') as f:
+        content = f.read()
+    expected_md5 = hashlib.md5(content).hexdigest()
+    expected_sha1 = hashlib.sha1(content).hexdigest()
+    expected_sha256 = hashlib.sha256(content).hexdigest()
+    
     # Test with default algorithm (md5)
     hash1 = cache_manager._calculate_file_hash(test_file)
-    assert hash1 is not None
-    assert len(hash1) > 0
+    print(f"MD5 hash: {hash1}, length: {len(hash1)}")
+    print(f"Expected MD5: {expected_md5}, length: {len(expected_md5)}")
     
     # Test with sha1 algorithm
     cache_manager.hash_algorithm = 'sha1'
     hash2 = cache_manager._calculate_file_hash(test_file)
-    assert hash2 is not None
-    assert len(hash2) > 0
+    print(f"SHA1 hash: {hash2}, length: {len(hash2)}")
+    print(f"Expected SHA1: {expected_sha1}, length: {len(expected_sha1)}")
     
     # Test with sha256 algorithm
     cache_manager.hash_algorithm = 'sha256'
     hash3 = cache_manager._calculate_file_hash(test_file)
-    assert hash3 is not None
-    assert len(hash3) > 0
+    print(f"SHA256 hash: {hash3}, length: {len(hash3)}")
+    print(f"Expected SHA256: {expected_sha256}, length: {len(expected_sha256)}")
     
-    # Verify different algorithms produce different hashes
-    assert hash1 != hash2
-    assert hash1 != hash3
-    assert hash2 != hash3
+    # Compare with expected hashes
+    assert hash1 == expected_md5
+    assert hash2 == expected_sha1
+    assert hash3 == expected_sha256
+    
+    # Verify correct hash lengths
+    assert len(hash1) == 32  # MD5
+    assert len(hash2) == 40  # SHA1
+    assert len(hash3) == 64  # SHA256
 
 def test_get_repo_cache_dir(cache_manager, tmp_path):
     """Test getting repository cache directory"""
