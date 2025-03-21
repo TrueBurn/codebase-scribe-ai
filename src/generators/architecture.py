@@ -276,7 +276,6 @@ def format_tree(d, indent=0):
             result.append(' ' * indent + k + '/')
             result.extend(format_tree(d[k], indent + 2))
     return result
-
 def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
     """
     Create a fallback architecture document with basic project structure.
@@ -292,8 +291,17 @@ def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
     Returns:
         Basic architecture documentation as a string
     """
+    # Import the format_project_structure function
+    from ..clients.llm_utils import format_project_structure
+    
+    # Format project structure without compression
+    project_structure = format_project_structure(file_manifest, debug=False, force_compression=False)
+    
     # Create a basic structure analysis
     structure_sections = analyze_basic_structure(file_manifest)
+    
+    # Add the project structure to the sections
+    structure_sections["Project Structure"] = f"```\n{project_structure}\n```"
     
     # Build the document
     content = f"# Project Architecture Analysis: {project_name}\n\n"
@@ -304,7 +312,7 @@ def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
     # Add more sections if available
     if structure_sections:
         for section in structure_sections.keys():
-            if section != "Overview":
+            if section != "Overview" and section != "Project Structure":
                 # Use the _format_anchor_link function from readme.py
                 anchor = _format_anchor_link(section)
                 content += f"- [{section}](#{anchor})\n"
@@ -314,32 +322,13 @@ def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
     content += "A more detailed analysis could not be generated automatically.\n\n"
     
     content += "## Project Structure\n\n"
-    content += "```\n"
-    
-    # Add a simplified file tree
-    dirs = {}
-    for path in file_manifest.keys():
-        parts = path.split('/')
-        current = dirs
-        for part in parts[:-1]:
-            if part not in current:
-                current[part] = {}
-            current = current[part]
-        if '_files' not in current:
-            current['_files'] = []
-        current['_files'].append(parts[-1])
-    
-    # Use the module-level format_tree function
-    tree_lines = format_tree(dirs)
-    content += '\n'.join(tree_lines[:MAX_TREE_LINES])  # Limit to configured number of lines
-    if len(tree_lines) > MAX_TREE_LINES:
-        content += "\n... (truncated)"
-    content += "\n```\n\n"
+    # Use the project structure we already generated with uncompressed paths
+    content += structure_sections["Project Structure"] + "\n\n"
     
     # Add any additional structure sections
     if structure_sections:
         for section, text in structure_sections.items():
-            if section != "Overview":
+            if section != "Overview" and section != "Project Structure":
                 content += f"## {section}\n\n{text}\n\n"
     
     return content

@@ -373,10 +373,10 @@ class BedrockClient(BaseLLMClient):
             logging.error(f"Error in generate_project_overview setup: {e}")
             return f"This is a software project containing {len(file_manifest)} files."
             raise
-    def _format_project_structure(self, file_manifest: dict) -> str:
+    def _format_project_structure(self, file_manifest: dict, force_compression: Optional[bool] = None) -> str:
         """Build a tree-like project structure string."""
         try:
-            result = format_project_structure(file_manifest, self.debug)
+            result = format_project_structure(file_manifest, self.debug, force_compression)
             # Ensure result is a string
             if not isinstance(result, str):
                 logging.warning(f"format_project_structure returned non-string: {type(result)}")
@@ -670,6 +670,9 @@ class BedrockClient(BaseLLMClient):
                 
                 # Get key components
                 key_components = self._identify_key_components(file_manifest)
+                
+                # Format project structure without compression for architecture documentation
+                self.project_structure = self._format_project_structure(file_manifest, force_compression=False)
                 
                 # Get messages
                 messages = MessageManager.get_architecture_content_messages(

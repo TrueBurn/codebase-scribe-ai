@@ -26,13 +26,14 @@ DEFAULT_VENDOR_PATTERNS = [
     r'\.sln$'                         # Solution files
 ]
 
-def format_project_structure(file_manifest: Dict[str, Dict], debug: bool = False) -> str:
+def format_project_structure(file_manifest: Dict[str, Dict], debug: bool = False, force_compression: Optional[bool] = None) -> str:
     """
     Build a tree-like project structure string from file manifest.
     
     Args:
         file_manifest: Dictionary mapping file paths to file information
         debug: Whether to print debug information
+        force_compression: If provided, overrides the automatic decision on whether to use compression
         
     Returns:
         A formatted string representing the project structure
@@ -45,8 +46,10 @@ def format_project_structure(file_manifest: Dict[str, Dict], debug: bool = False
         # Get file paths from manifest
         file_paths = [str(path).replace('\\', '/') for path in file_manifest.keys()]
         
-        # Check if we should use path compression (only for large projects)
-        use_compression = len(file_paths) > 50
+        # Check if we should use path compression
+        # If force_compression is provided, use that value
+        # Otherwise, use compression for large projects (more than 50 files)
+        use_compression = force_compression if force_compression is not None else len(file_paths) > 50
         
         if use_compression:
             # Apply path compression to reduce token usage
