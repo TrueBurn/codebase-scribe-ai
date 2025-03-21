@@ -440,7 +440,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 The project uses a class-based configuration system (`ScribeConfig`) that provides type safety and better organization of configuration options. The configuration is loaded from a YAML file and can be overridden by command-line arguments and environment variables.
 
-The migration from dictionary-based configuration to class-based configuration is now complete. The system provides:
+The system provides:
 
 - Type safety and better IDE support
 - Structured organization of configuration options
