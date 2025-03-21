@@ -94,28 +94,9 @@ async def generate_architecture(
                         architecture_content += "\n\n" + diagram
                     
                     # Replace flat project structure with tree view if present
-                    if "## Project Structure" in architecture_content and "```" in architecture_content:
-                        # Create a tree view of the project structure
-                        dirs = {}
-                        for path in file_manifest.keys():
-                            parts = str(path).replace('\\', '/').split('/')
-                            current = dirs
-                            for part in parts[:-1]:
-                                if part not in current:
-                                    current[part] = {}
-                                current = current[part]
-                            if '_files' not in current:
-                                current['_files'] = []
-                            current['_files'].append(parts[-1])
-                        
-                        # Format the tree
-                        tree_lines = format_tree(dirs)
-                        tree_content = '\n'.join(tree_lines[:MAX_TREE_LINES])
-                        if len(tree_lines) > MAX_TREE_LINES:
-                            tree_content += "\n... (truncated)"
-                        
+                    if ("## Project Structure" in architecture_content or "## 2. Project Structure" in architecture_content) and "```" in architecture_content:
                         # Replace the flat structure with improved tree view
-                        pattern = r'(## Project Structure\s*\n+```[^\n]*\n)(.*?)(```)'
+                        pattern = r'(## (?:\d+\. )?Project Structure\s*\n+```[^\n]*\n)(.*?)(```)'
                         
                         # Generate a proper tree structure with clear hierarchy
                         tree_content = format_tree_structure(file_manifest)
@@ -187,48 +168,7 @@ async def generate_architecture(
         logging.error(f"Error generating architecture documentation: {e}")
         return create_fallback_architecture("Project", file_manifest)
 
-def format_tree(d, indent=0):
-    """
-    Format a nested dictionary as a tree structure.
-    
-    Args:
-        d: Dictionary representing directory structure
-        indent: Current indentation level
-        
-    Returns:
-        List of formatted tree lines
-    """
-    # Convert the old format to the new format
-    new_format = {}
-    if '_files' in d:
-        new_format['__files__'] = d['_files']
-    
-    for k in d.keys():
-        if k != '_files':
-            new_format[k] = {}
-            # Recursively convert subdirectories
-            _convert_tree_format(d[k], new_format[k])
-    
-    # Format the tree
-    lines = []
-    _format_tree_node(new_format, lines, "", "")
-    return lines
-
-def _convert_tree_format(old_format, new_format):
-    """
-    Convert the old tree format to the new format.
-    
-    Args:
-        old_format: Dictionary in the old format
-        new_format: Dictionary to populate with the new format
-    """
-    if '_files' in old_format:
-        new_format['__files__'] = old_format['_files']
-    
-    for k in old_format.keys():
-        if k != '_files':
-            new_format[k] = {}
-            _convert_tree_format(old_format[k], new_format[k])
+# Removed unused functions - these are now handled by the tree_formatter module
 def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
     """
     Create a fallback architecture document with basic project structure.
@@ -328,8 +268,8 @@ def analyze_basic_structure(file_manifest: dict) -> Dict[str, str]:
     
     # Look for common project patterns
     has_tests = any('test' in str(path).lower() for path in file_manifest.keys())
-    has_docs = any('doc' in path.lower() for path in file_manifest.keys())
-    has_ci = any('.github/workflows' in path for path in file_manifest.keys())
+    has_docs = any('doc' in str(path).lower() for path in file_manifest.keys())
+    has_ci = any('.github/workflows' in str(path) for path in file_manifest.keys())
     
     project_patterns = "The project structure indicates:\n\n"
     if has_tests:
