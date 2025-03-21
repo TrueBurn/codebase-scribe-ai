@@ -6,7 +6,7 @@ import logging
 from types import TracebackType
 
 from src.utils.config_class import ScribeConfig
-from src.utils.config_utils import config_to_dict, dict_to_config
+# No need to import config_to_dict and dict_to_config anymore
 
 class LLMClientFactoryError(Exception):
     """Base exception for LLM client factory errors."""
@@ -32,13 +32,14 @@ class LLMClientFactory:
     
     Example:
         ```python
-        config = {
-            'llm_provider': 'ollama',
-            'ollama': {
-                'base_url': 'http://localhost:11434',
-                'max_tokens': 4096
-            }
-        }
+        from src.utils.config_class import ScribeConfig, OllamaConfig
+        
+        config = ScribeConfig()
+        config.llm_provider = 'ollama'
+        config.ollama = OllamaConfig(
+            base_url='http://localhost:11434',
+            max_tokens=4096
+        )
         
         # Create the client using the factory
         llm_client = await LLMClientFactory.create_client(config)
@@ -73,12 +74,12 @@ class LLMClientFactory:
         logging.info(f"Registered new LLM client type: {provider_name}")
     
     @classmethod
-    def validate_config(cls, config: Union[ScribeConfig, Dict[str, Any]]) -> bool:
+    def validate_config(cls, config: ScribeConfig) -> bool:
         """
         Validate the configuration.
         
         Args:
-            config: The configuration (ScribeConfig or dictionary)
+            config: The ScribeConfig instance
             
         Returns:
             bool: True if configuration is valid
@@ -86,14 +87,9 @@ class LLMClientFactory:
         Raises:
             ConfigValidationError: If configuration is invalid
         """
-        # Convert to ScribeConfig if it's a dictionary
-        if isinstance(config, dict):
-            try:
-                config = dict_to_config(config)
-            except Exception as e:
-                raise ConfigValidationError(f"Invalid configuration format: {e}")
-        elif not isinstance(config, ScribeConfig):
-            raise ConfigValidationError(f"Configuration must be a ScribeConfig instance or dictionary, got {type(config)}")
+        # Ensure config is a ScribeConfig instance
+        if not isinstance(config, ScribeConfig):
+            raise ConfigValidationError(f"Configuration must be a ScribeConfig instance, got {type(config)}")
         
         # Check if provider is valid
         provider = config.llm_provider.lower()
@@ -106,12 +102,12 @@ class LLMClientFactory:
         return True
     
     @classmethod
-    async def create_client(cls, config: Union[ScribeConfig, Dict[str, Any]]) -> BaseLLMClient:
+    async def create_client(cls, config: ScribeConfig) -> BaseLLMClient:
         """
         Create and initialize an LLM client based on configuration.
         
         Args:
-            config: Configuration (ScribeConfig or dictionary) with provider and client-specific settings
+            config: ScribeConfig instance with provider and client-specific settings
             
         Returns:
             BaseLLMClient: Initialized LLM client
@@ -120,13 +116,6 @@ class LLMClientFactory:
             ConfigValidationError: If configuration is invalid
             ClientInitializationError: If client initialization fails
         """
-        # Convert to ScribeConfig if it's a dictionary
-        if isinstance(config, dict):
-            config_dict = config
-            config = dict_to_config(config)
-        else:
-            config_dict = config_to_dict(config)
-            
         # Validate configuration
         try:
             cls.validate_config(config)
@@ -139,13 +128,12 @@ class LLMClientFactory:
         # Add debug logging to see what provider is being selected
         if config.debug:
             logging.info(f"Creating LLM client with provider: {provider}")
-            logging.info(f"Config keys: {list(config_dict.keys())}")
         
         if provider == 'bedrock':
             try:
                 if config.debug:
                     logging.info("Initializing Bedrock client...")
-                client = BedrockClient(config_dict)  # Pass dict for backward compatibility
+                client = BedrockClient(config)
                 await client.initialize()
                 if config.debug:
                     logging.info("Bedrock client initialized successfully")
@@ -162,7 +150,7 @@ class LLMClientFactory:
             logging.info("Initializing Ollama client...")
             
         try:
-            client = OllamaClient(config_dict)  # Pass dict for backward compatibility
+            client = OllamaClient(config)
             await client.initialize()
             return client
         except Exception as e:

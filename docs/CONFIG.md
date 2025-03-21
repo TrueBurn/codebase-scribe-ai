@@ -4,13 +4,16 @@ This document provides detailed information about the configuration system used 
 
 ## Overview
 
-The configuration system is designed to be flexible and extensible, allowing users to customize the behavior of the application through a YAML configuration file. The system supports:
+The configuration system is designed to be flexible and extensible, allowing users to customize the behavior of the application through a YAML configuration file. The system uses a class-based approach with `ScribeConfig` as the main configuration class.
+
+The system supports:
 
 - Default configuration values
 - Custom overrides from YAML files
 - Environment variable overrides
-- Type validation
-- Configuration dumping for debugging
+- Command-line argument overrides
+- Type validation through Python type hints
+- Configuration serialization and deserialization
 
 ## Configuration File
 
@@ -147,67 +150,82 @@ Validation checks include:
 ### Loading Configuration
 
 ```python
-from src.utils.config import load_config
+from src.utils.config_utils import load_config
 
 # Load configuration from default file (config.yaml)
 config = load_config("config.yaml")
 
 # Access configuration values
-llm_provider = config["llm_provider"]
-debug_mode = config["debug"]
+llm_provider = config.llm_provider
+debug_mode = config.debug
 ```
 
-### Using ConfigManager
+### Using ScribeConfig
 
 ```python
-from src.utils.config import ConfigManager
+from src.utils.config_class import ScribeConfig, OllamaConfig, BedrockConfig
 
-# Create a ConfigManager instance
-config_manager = ConfigManager("config.yaml")
+# Create a ScribeConfig instance
+config = ScribeConfig()
+config.debug = True
+config.llm_provider = "ollama"
+
+# Configure Ollama
+config.ollama = OllamaConfig(
+    base_url="http://localhost:11434",
+    max_tokens=4096,
+    retries=3,
+    timeout=30
+)
 
 # Access configuration values
-llm_provider = config_manager["llm_provider"]
-debug_mode = config_manager.get("debug", False)  # With default value
+llm_provider = config.llm_provider
+debug_mode = config.debug
 
-# Get provider-specific configuration
-ollama_config = config_manager.get_ollama_config()
-bedrock_config = config_manager.get_bedrock_config()
-cache_config = config_manager.get_cache_config()
+# Access provider-specific configuration
+ollama_config = config.ollama
+bedrock_config = config.bedrock
+cache_config = config.cache
 
-# Get a template
-template = config_manager.get_template("prompts", "file_summary")
+# Get templates
+file_summary_template = config.templates.prompts.file_summary
+readme_template = config.templates.docs.readme
 
-# Format a template with context
-formatted_template = config_manager.get_template("prompts", "file_summary", {
-    "file_path": "src/main.py",
-    "file_type": "Python",
-    "context": "Main application entry point",
-    "code": "print('Hello, world!')"
-})
+# Write configuration to file
+config.write_to_file("new_config.yaml")
+```
 
-# Dump configuration for debugging
-config_dict = config_manager.dump_config("dict")
-config_yaml = config_manager.dump_config("yaml")
-config_json = config_manager.dump_config("json")
+### Backward Compatibility
+
+For backward compatibility, you can convert between dictionary and class-based configurations:
+
+```python
+from src.utils.config_utils import config_to_dict, dict_to_config
+
+# Convert ScribeConfig to dictionary
+config_dict = config_to_dict(config)
+
+# Convert dictionary to ScribeConfig
+config = dict_to_config(config_dict)
 ```
 
 ## Extending the Configuration System
 
 To add new configuration options:
 
-1. Add the new option to the `DEFAULT_CONFIG` dictionary in `src/utils/config.py`
-2. Update the type definitions in `ConfigDict` and related TypedDict classes
-3. Add validation for the new option in the `_validate_config` method
-4. Add environment variable support in the `_apply_env_overrides` method if needed
+1. Update the appropriate class in `src/utils/config_class.py`
+2. Add default values in the class constructor
+3. Update the `from_dict` and `to_dict` methods if needed
+4. Add environment variable support in the `update_config_with_args` function if needed
 5. Update the documentation in this file
 
 ## Best Practices
 
-1. **Use the ConfigManager class** instead of directly accessing the configuration dictionary
-2. **Provide default values** when getting configuration options
-3. **Validate configuration values** before using them
-4. **Use environment variables** for sensitive information or deployment-specific settings
-5. **Document new configuration options** in this file
+1. **Use the ScribeConfig class** for type safety and better organization
+2. **Provide default values** in class constructors
+3. **Use environment variables** for sensitive information or deployment-specific settings
+4. **Document new configuration options** in this file
+5. **Use type hints** for better IDE support and code quality
 
 ## Troubleshooting
 

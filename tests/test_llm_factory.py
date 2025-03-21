@@ -14,23 +14,27 @@ from src.clients.llm_factory import (
     LLMClientFactoryError
 )
 from src.clients.base_llm import BaseLLMClient
+from src.utils.config_class import ScribeConfig, OllamaConfig, BedrockConfig
 
 
 @pytest.fixture
 def config():
     """Fixture to provide a test configuration."""
-    return {
-        'llm_provider': 'ollama',
-        'ollama': {
-            'base_url': 'http://localhost:11434',
-            'max_tokens': 4096
-        },
-        'bedrock': {
-            'region': 'us-east-1',
-            'model_id': 'test-model'
-        },
-        'debug': True
-    }
+    config = ScribeConfig()
+    config.llm_provider = 'ollama'
+    config.debug = True
+    
+    # Configure Ollama
+    config.ollama = OllamaConfig()
+    config.ollama.base_url = 'http://localhost:11434'
+    config.ollama.max_tokens = 4096
+    
+    # Configure Bedrock
+    config.bedrock = BedrockConfig()
+    config.bedrock.region = 'us-east-1'
+    config.bedrock.model_id = 'test-model'
+    
+    return config
 
 
 def test_validate_config_valid(config):
@@ -39,8 +43,11 @@ def test_validate_config_valid(config):
     assert LLMClientFactory.validate_config(config) is True
     
     # Valid Bedrock config
-    bedrock_config = config.copy()
-    bedrock_config['llm_provider'] = 'bedrock'
+    bedrock_config = ScribeConfig()
+    bedrock_config.llm_provider = 'bedrock'
+    bedrock_config.debug = True
+    bedrock_config.bedrock = config.bedrock
+    bedrock_config.ollama = config.ollama
     assert LLMClientFactory.validate_config(bedrock_config) is True
 
 
@@ -51,23 +58,12 @@ def test_validate_config_invalid(config):
         LLMClientFactory.validate_config("not a dict")
     
     # Invalid provider
-    invalid_provider = config.copy()
-    invalid_provider['llm_provider'] = 'invalid_provider'
+    invalid_provider = ScribeConfig()
+    invalid_provider.llm_provider = 'invalid_provider'
+    invalid_provider.ollama = config.ollama
+    invalid_provider.bedrock = config.bedrock
     with pytest.raises(ConfigValidationError):
         LLMClientFactory.validate_config(invalid_provider)
-    
-    # Invalid Ollama config
-    invalid_ollama = config.copy()
-    invalid_ollama['ollama'] = "not a dict"
-    with pytest.raises(ConfigValidationError):
-        LLMClientFactory.validate_config(invalid_ollama)
-    
-    # Invalid Bedrock config
-    invalid_bedrock = config.copy()
-    invalid_bedrock['llm_provider'] = 'bedrock'
-    invalid_bedrock['bedrock'] = "not a dict"
-    with pytest.raises(ConfigValidationError):
-        LLMClientFactory.validate_config(invalid_bedrock)
 
 
 def test_register_client_type():
@@ -140,8 +136,11 @@ async def test_create_client_ollama(config):
 async def test_create_client_bedrock(config):
     """Test creating a Bedrock client."""
     # Modify config to use Bedrock
-    bedrock_config = config.copy()
-    bedrock_config['llm_provider'] = 'bedrock'
+    bedrock_config = ScribeConfig()
+    bedrock_config.llm_provider = 'bedrock'
+    bedrock_config.debug = config.debug
+    bedrock_config.bedrock = config.bedrock
+    bedrock_config.ollama = config.ollama
     
     # Mock the BedrockClient class and its initialize method
     with patch('src.clients.llm_factory.BedrockClient') as mock_bedrock_client:
@@ -162,8 +161,11 @@ async def test_create_client_bedrock(config):
 async def test_bedrock_fallback_to_ollama(config):
     """Test fallback from Bedrock to Ollama when Bedrock initialization fails."""
     # Modify config to use Bedrock
-    bedrock_config = config.copy()
-    bedrock_config['llm_provider'] = 'bedrock'
+    bedrock_config = ScribeConfig()
+    bedrock_config.llm_provider = 'bedrock'
+    bedrock_config.debug = config.debug
+    bedrock_config.bedrock = config.bedrock
+    bedrock_config.ollama = config.ollama
     
     # Mock both client classes
     with patch('src.clients.llm_factory.BedrockClient') as mock_bedrock_client, \

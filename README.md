@@ -434,13 +434,19 @@ Contributions are welcome! Please read our [Contributing Guide](docs/CONTRIBUTIN
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 ## Development Notes
 
-### Configuration Migration
+### Configuration System
 
-> **⚠️ IN PROGRESS ⚠️**
->
-> We are currently migrating from dictionary-based configuration to a config class system.
->
-> **TODO:** Complete the migration and decommission the old dictionary config approach.
+The project uses a class-based configuration system (`ScribeConfig`) that provides type safety and better organization of configuration options. The configuration is loaded from a YAML file and can be overridden by command-line arguments and environment variables.
+
+The migration from dictionary-based configuration to class-based configuration is now complete. The system provides:
+
+- Type safety and better IDE support
+- Structured organization of configuration options
+- Validation of configuration values
+- Environment variable overrides
+- Command-line argument overrides
+
+See the [Configuration Guide](docs/CONFIG.md) for detailed information on the configuration system.
 
 ### Bytecode Caching
 

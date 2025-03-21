@@ -9,6 +9,7 @@ configuration and the new ScribeConfig class-based configuration.
 
 from pathlib import Path
 from typing import Dict, Any, Union, Optional
+import warnings
 
 from src.utils.config import load_config as load_config_dict
 from src.utils.config_class import ScribeConfig
@@ -47,6 +48,7 @@ def load_config(config_path: Union[str, Path]) -> ScribeConfig:
     except Exception as e:
         logging.error(f"Error loading config from {config_path}: {e}")
         return ScribeConfig()  # Return default config on error
+
 
 def update_config_with_args(config: ScribeConfig, args: Any) -> ScribeConfig:
     """
@@ -104,7 +106,7 @@ def config_to_dict(config: ScribeConfig) -> Dict[str, Any]:
     """
     Convert configuration to dictionary.
     
-    This function is maintained for backward compatibility.
+    DEPRECATED: This function is maintained for backward compatibility only.
     New code should use ScribeConfig.to_dict() directly.
     
     Args:
@@ -113,6 +115,11 @@ def config_to_dict(config: ScribeConfig) -> Dict[str, Any]:
     Returns:
         Configuration dictionary
     """
+    warnings.warn(
+        "config_to_dict is deprecated. Use ScribeConfig.to_dict() directly.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     return config.to_dict()
 
 
@@ -120,7 +127,7 @@ def dict_to_config(config_dict: Dict[str, Any]) -> ScribeConfig:
     """
     Convert dictionary to ScribeConfig.
     
-    This function is maintained for backward compatibility.
+    DEPRECATED: This function is maintained for backward compatibility only.
     New code should use ScribeConfig.from_dict() directly.
     
     Args:
@@ -130,6 +137,11 @@ def dict_to_config(config_dict: Dict[str, Any]) -> ScribeConfig:
         ScribeConfig instance
     """
     import logging
+    warnings.warn(
+        "dict_to_config is deprecated. Use ScribeConfig.from_dict() directly.",
+        DeprecationWarning,
+        stacklevel=2
+    )
     logging.debug("Converting dictionary to ScribeConfig")
     return ScribeConfig.from_dict(config_dict)
 

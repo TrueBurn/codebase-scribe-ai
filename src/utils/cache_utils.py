@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional
 
 from src.utils.cache import CacheManager
 from src.analyzers.codebase import CodebaseAnalyzer
+from src.utils.config_class import ScribeConfig
 
 
 def display_cache_stats(cache_stats: Dict[str, int], total_elapsed: float, cache_enabled: bool) -> None:
@@ -37,39 +38,14 @@ def display_cache_stats(cache_stats: Dict[str, int], total_elapsed: float, cache
             print(f"Total processing time: {total_time_str}")
 
 
-def display_github_cache_stats(config: Dict[str, Any], analyzer: CodebaseAnalyzer) -> None:
+def display_github_cache_stats(config: ScribeConfig, analyzer: CodebaseAnalyzer) -> None:
     """Display GitHub repository cache statistics.
     
     Args:
-        config: Configuration dictionary
+        config: ScribeConfig instance
         analyzer: CodebaseAnalyzer instance
     """
-    if config and config.get('github_repo_id'):
+    if config and hasattr(config, 'github_repo_id') and config.github_repo_id:
         print("\nCache statistics for GitHub repository:")
-        print(f"Repository ID: {config['github_repo_id']}")
+        print(f"Repository ID: {config.github_repo_id}")
         print(f"Cache directory: {analyzer.cache.get_repo_cache_dir()}")
-        
-        # Check if cache is enabled
-        if analyzer.cache.enabled:
-            print("Cache is enabled")
-        else:
-            print("Cache is disabled")
-            
-        # Print cache hit rate
-        cache_hits = sum(1 for file_info in analyzer.file_manifest.values() 
-                       if hasattr(file_info, 'from_cache') and file_info.from_cache)
-        total_files = len(analyzer.file_manifest)
-        cache_hit_rate = cache_hits / total_files * 100 if total_files > 0 else 0
-        
-        print(f"Cache hit rate: {cache_hits}/{total_files} files ({cache_hit_rate:.1f}%)")
-
-
-def clear_all_caches(repo_path: Path, config: Dict[str, Any]) -> None:
-    """Clear all caches for a repository.
-    
-    Args:
-        repo_path: Path to the repository
-        config: Configuration dictionary
-    """
-    CacheManager.clear_all_caches(repo_path=repo_path, config=config)
-    print(f"Cleared all caches for repository: {repo_path.name}")
