@@ -388,6 +388,31 @@ class BedrockClient(BaseLLMClient):
     def _find_common_dependencies(self, file_manifest: dict) -> str:
         """Extract common dependencies from file manifest."""
         try:
+            # Log detailed information about file_manifest
+            logging.debug(f"_find_common_dependencies called with file_manifest type: {type(file_manifest)}")
+            if file_manifest:
+                sample_key = next(iter(file_manifest))
+                sample_value = file_manifest[sample_key]
+                logging.debug(f"Sample key type: {type(sample_key)}, value: {sample_key}")
+                logging.debug(f"Sample value type: {type(sample_value)}")
+                if hasattr(sample_value, '__dict__'):
+                    logging.debug(f"Sample value attributes: {dir(sample_value)}")
+                elif isinstance(sample_value, dict):
+                    logging.debug(f"Sample value keys: {sample_value.keys()}")
+            else:
+                logging.debug("file_manifest is empty")
+            
+            # Convert file_manifest if needed
+            # If file_manifest contains FileInfo objects but find_common_dependencies expects dicts
+            converted_manifest = {}
+            for path, info in file_manifest.items():
+                if hasattr(info, 'to_dict'):
+                    # Convert FileInfo to dict if needed
+                    converted_manifest[path] = info.to_dict()
+                else:
+                    # Keep as is
+                    converted_manifest[path] = info
+            
             result = find_common_dependencies(file_manifest, self.debug)
             # Ensure result is a string
             if not isinstance(result, str):
@@ -396,6 +421,8 @@ class BedrockClient(BaseLLMClient):
             return result
         except Exception as e:
             logging.error(f"Error in _find_common_dependencies: {e}")
+            logging.error(f"Exception type: {type(e)}")
+            logging.error(f"Exception traceback: {traceback.format_exc()}")
             return "No dependencies detected."
     
     def _identify_key_components(self, file_manifest: dict) -> str:

@@ -2,6 +2,7 @@
 import json
 import logging
 import re
+import traceback
 from collections import defaultdict
 from pathlib import Path
 from typing import List, Tuple, Dict, Optional
@@ -123,18 +124,42 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                 package_json_count += 1
                 try:
                     content = info.content
-                    if content and '"dependencies"' in content:
-                        # Extract dependencies section
-                        deps_match = re.search(r'"dependencies"\s*:\s*{([^}]+)}', content)
-                        if deps_match:
-                            deps_str = deps_match.group(1)
-                            # Extract each dependency
-                            for dep_match in re.finditer(r'"([^"]+)"\s*:\s*"([^"]+)"', deps_str):
-                                dep_name = dep_match.group(1)
-                                dep_version = dep_match.group(2)
-                                dependencies[f"npm:{dep_name}@{dep_version}"] += 1
+                    if content:
+                        # Check if content is a string
+                        if not isinstance(content, str):
+                            logging.warning(f"Content for {path} is not a string, but {type(content)}")
+                            continue
+                            
+                        # Check for dependencies section with more flexible pattern matching
+                        if '"dependencies"' in content or '"devDependencies"' in content:
+                            # Try to parse as JSON first (most reliable)
+                            try:
+                                package_data = json.loads(content)
+                                # Process dependencies
+                                if "dependencies" in package_data and isinstance(package_data["dependencies"], dict):
+                                    for dep_name, dep_version in package_data["dependencies"].items():
+                                        if isinstance(dep_version, str):
+                                            dependencies[f"npm:{dep_name}@{dep_version}"] += 1
+                                # Process devDependencies
+                                if "devDependencies" in package_data and isinstance(package_data["devDependencies"], dict):
+                                    for dep_name, dep_version in package_data["devDependencies"].items():
+                                        if isinstance(dep_version, str):
+                                            dependencies[f"npm-dev:{dep_name}@{dep_version}"] += 1
+                            except json.JSONDecodeError:
+                                # Fallback to regex if JSON parsing fails
+                                # Extract dependencies section
+                                deps_match = re.search(r'"dependencies"\s*:\s*{([^}]+)}', content)
+                                if deps_match:
+                                    deps_str = deps_match.group(1)
+                                    # Extract each dependency
+                                    for dep_match in re.finditer(r'"([^"]+)"\s*:\s*"([^"]+)"', deps_str):
+                                        dep_name = dep_match.group(1)
+                                        dep_version = dep_match.group(2)
+                                        dependencies[f"npm:{dep_name}@{dep_version}"] += 1
                 except Exception as e:
                     logging.warning(f"Error parsing package.json at {path}: {e}")
+                    logging.warning(f"Exception type: {type(e)}")
+                    logging.warning(f"Exception traceback: {traceback.format_exc()}")
                     if debug:
                         print(f"Error parsing package.json at {path}: {e}")
         
@@ -146,6 +171,11 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                 try:
                     content = info.content
                     if content:
+                        # Check if content is a string
+                        if not isinstance(content, str):
+                            logging.warning(f"Content for {path} is not a string, but {type(content)}")
+                            continue
+                            
                         # Extract each dependency
                         for line in content.split('\n'):
                             line = line.strip()
@@ -153,6 +183,8 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                                 dependencies[f"python:{line}"] += 1
                 except Exception as e:
                     logging.warning(f"Error parsing requirements.txt at {path}: {e}")
+                    logging.warning(f"Exception type: {type(e)}")
+                    logging.warning(f"Exception traceback: {traceback.format_exc()}")
                     if debug:
                         print(f"Error parsing requirements.txt at {path}: {e}")
         
@@ -164,6 +196,11 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                 try:
                     content = info.content
                     if content:
+                        # Check if content is a string
+                        if not isinstance(content, str):
+                            logging.warning(f"Content for {path} is not a string, but {type(content)}")
+                            continue
+                            
                         # Extract PackageReference elements
                         for match in re.finditer(r'<PackageReference\s+Include="([^"]+)"\s+Version="([^"]+)"', content):
                             package_name = match.group(1)
@@ -171,6 +208,8 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                             dependencies[f"nuget:{package_name}@{version}"] += 1
                 except Exception as e:
                     logging.warning(f"Error parsing .csproj at {path}: {e}")
+                    logging.warning(f"Exception type: {type(e)}")
+                    logging.warning(f"Exception traceback: {traceback.format_exc()}")
                     if debug:
                         print(f"Error parsing .csproj at {path}: {e}")
         
@@ -182,6 +221,11 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                 try:
                     content = info.content
                     if content:
+                        # Check if content is a string
+                        if not isinstance(content, str):
+                            logging.warning(f"Content for {path} is not a string, but {type(content)}")
+                            continue
+                            
                         # Extract package elements
                         for match in re.finditer(r'<package\s+id="([^"]+)"\s+version="([^"]+)"', content):
                             package_name = match.group(1)
@@ -189,6 +233,8 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                             dependencies[f"nuget:{package_name}@{version}"] += 1
                 except Exception as e:
                     logging.warning(f"Error parsing packages.config at {path}: {e}")
+                    logging.warning(f"Exception type: {type(e)}")
+                    logging.warning(f"Exception traceback: {traceback.format_exc()}")
                     if debug:
                         print(f"Error parsing packages.config at {path}: {e}")
         
@@ -200,6 +246,11 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                 try:
                     content = info.content
                     if content:
+                        # Check if content is a string
+                        if not isinstance(content, str):
+                            logging.warning(f"Content for {path} is not a string, but {type(content)}")
+                            continue
+                            
                         # Extract dependency elements
                         for match in re.finditer(r'<dependency>\s*<groupId>([^<]+)</groupId>\s*<artifactId>([^<]+)</artifactId>\s*<version>([^<]+)</version>', content, re.DOTALL):
                             group_id = match.group(1).strip()
@@ -208,6 +259,8 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                             dependencies[f"maven:{group_id}:{artifact_id}@{version}"] += 1
                 except Exception as e:
                     logging.warning(f"Error parsing pom.xml at {path}: {e}")
+                    logging.warning(f"Exception type: {type(e)}")
+                    logging.warning(f"Exception traceback: {traceback.format_exc()}")
                     if debug:
                         print(f"Error parsing pom.xml at {path}: {e}")
         
@@ -219,6 +272,11 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                 try:
                     content = info.content
                     if content:
+                        # Check if content is a string
+                        if not isinstance(content, str):
+                            logging.warning(f"Content for {path} is not a string, but {type(content)}")
+                            continue
+                            
                         # Extract implementation/compile dependencies
                         for match in re.finditer(r'(implementation|compile)\s+[\'"]([^:\'"]*)(?::([^:\'"]*))?(?::([^\'"]*))?(:[^\'"]*)?[\'"]', content):
                             dep_type = match.group(1)
@@ -229,6 +287,8 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                                 dependencies[f"gradle:{group}:{artifact}@{version}"] += 1
                 except Exception as e:
                     logging.warning(f"Error parsing build.gradle at {path}: {e}")
+                    logging.warning(f"Exception type: {type(e)}")
+                    logging.warning(f"Exception traceback: {traceback.format_exc()}")
                     if debug:
                         print(f"Error parsing build.gradle at {path}: {e}")
         
@@ -240,6 +300,11 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                 try:
                     content = info.content
                     if content:
+                        # Check if content is a string
+                        if not isinstance(content, str):
+                            logging.warning(f"Content for {path} is not a string, but {type(content)}")
+                            continue
+                            
                         # Extract implementation/compile dependencies
                         for match in re.finditer(r'(implementation|compile)\([\'"](.*?)[\'"]', content):
                             dep_type = match.group(1)
@@ -247,6 +312,8 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
                             dependencies[f"gradle-kts:{dep_string}"] += 1
                 except Exception as e:
                     logging.warning(f"Error parsing build.gradle.kts at {path}: {e}")
+                    logging.warning(f"Exception type: {type(e)}")
+                    logging.warning(f"Exception traceback: {traceback.format_exc()}")
                     if debug:
                         print(f"Error parsing build.gradle.kts at {path}: {e}")
         
