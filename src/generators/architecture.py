@@ -79,8 +79,9 @@ async def generate_architecture(
             
             # Add mermaid diagram if MermaidGenerator is available
             try:
-                # Use the mocked MermaidGenerator in tests
-                mermaid_gen = MermaidGenerator(nx.DiGraph())
+                # Build a dependency graph from the file manifest
+                dependency_graph = build_dependency_graph_from_manifest(file_manifest)
+                mermaid_gen = MermaidGenerator(dependency_graph)
                 diagram = mermaid_gen.generate_dependency_flowchart()
                 if diagram and "```mermaid" in diagram:
                     # Add the diagram before the first section or at the end if no sections
@@ -89,6 +90,111 @@ async def generate_architecture(
                         architecture_content = parts[0] + "\n" + diagram + "\n\n## " + parts[1]
                     else:
                         architecture_content += "\n\n" + diagram
+                    
+                    # Replace flat project structure with tree view if present
+                    if "## Project Structure" in architecture_content and "```" in architecture_content:
+                        # Create a tree view of the project structure
+                        dirs = {}
+                        for path in file_manifest.keys():
+                            parts = str(path).replace('\\', '/').split('/')
+                            current = dirs
+                            for part in parts[:-1]:
+                                if part not in current:
+                                    current[part] = {}
+                                current = current[part]
+                            if '_files' not in current:
+                                current['_files'] = []
+                            current['_files'].append(parts[-1])
+                        
+                        # Format the tree
+                        tree_lines = format_tree(dirs)
+                        tree_content = '\n'.join(tree_lines[:MAX_TREE_LINES])
+                        if len(tree_lines) > MAX_TREE_LINES:
+                            tree_content += "\n... (truncated)"
+                        
+                        # Replace the flat structure with tree view
+                        pattern = r'(## Project Structure\s*\n+```[^\n]*\n)(.*?)(```)'
+                        
+                        # Generate a proper tree structure
+                        tree_structure = []
+                        
+                        # Group files by directory
+                        dir_structure = {}
+                        for path in file_manifest.keys():
+                            path_str = str(path).replace('\\', '/')
+                            parts = path_str.split('/')
+                            
+                            # Skip if it's just a file in the root
+                            if len(parts) == 1:
+                                if 'root' not in dir_structure:
+                                    dir_structure['root'] = []
+                                dir_structure['root'].append(parts[0])
+                                continue
+                                
+                            # Build directory structure
+                            current_dir = dir_structure
+                            for i, part in enumerate(parts[:-1]):
+                                if i == 0:
+                                    # First level directory
+                                    if part not in current_dir:
+                                        current_dir[part] = {'__files': []}
+                                    current_dir = current_dir[part]
+                                else:
+                                    # Nested directory
+                                    if '__dirs' not in current_dir:
+                                        current_dir['__dirs'] = {}
+                                    if part not in current_dir['__dirs']:
+                                        current_dir['__dirs'][part] = {'__files': []}
+                                    current_dir = current_dir['__dirs'][part]
+                            
+                            # Add file to the current directory
+                            current_dir['__files'].append(parts[-1])
+                        
+                        # Format the tree structure
+                        def format_dir_tree(structure, prefix=''):
+                            lines = []
+                            
+                            # Add root files
+                            if 'root' in structure:
+                                for file in sorted(structure['root']):
+                                    lines.append(f"{prefix}{file}")
+                                
+                            # Add directories
+                            for dir_name in sorted([k for k in structure.keys() if k != 'root']):
+                                dir_content = structure[dir_name]
+                                lines.append(f"{prefix}{dir_name}/")
+                                
+                                # Add files in this directory
+                                for file in sorted(dir_content.get('__files', [])):
+                                    lines.append(f"{prefix}  {file}")
+                                
+                                # Add subdirectories
+                                if '__dirs' in dir_content:
+                                    for subdir_name in sorted(dir_content['__dirs'].keys()):
+                                        subdir_content = dir_content['__dirs'][subdir_name]
+                                        lines.append(f"{prefix}  {subdir_name}/")
+                                        
+                                        # Add files in subdirectory
+                                        for file in sorted(subdir_content.get('__files', [])):
+                                            lines.append(f"{prefix}    {file}")
+                                        
+                                        # Add deeper subdirectories (simplified, doesn't go beyond 2 levels)
+                                        if '__dirs' in subdir_content:
+                                            for deep_subdir in sorted(subdir_content['__dirs'].keys()):
+                                                lines.append(f"{prefix}    {deep_subdir}/")
+                                                deep_files = subdir_content['__dirs'][deep_subdir].get('__files', [])
+                                                for file in sorted(deep_files):
+                                                    lines.append(f"{prefix}      {file}")
+                            
+                            return lines
+                        
+                        tree_lines = format_dir_tree(dir_structure)
+                        tree_content = '\n'.join(tree_lines[:MAX_TREE_LINES])
+                        if len(tree_lines) > MAX_TREE_LINES:
+                            tree_content += "\n... (truncated)"
+                        
+                        replacement = r'\1' + tree_content + r'\n```'
+                        architecture_content = re.sub(pattern, replacement, architecture_content, flags=re.DOTALL)
             except Exception as e:
                 logging.warning(f"Failed to generate mermaid diagram: {e}")
             
@@ -148,7 +254,27 @@ async def generate_architecture(
         logging.error(f"Error generating architecture documentation: {e}")
         return create_fallback_architecture("Project", file_manifest)
 
-# This section intentionally left blank - removing unused function
+def format_tree(d, indent=0):
+    """
+    Format a nested dictionary as a tree structure.
+    
+    Args:
+        d: Dictionary representing directory structure
+        indent: Current indentation level
+        
+    Returns:
+        List of formatted tree lines
+    """
+    result = []
+    if '_files' in d:
+        for f in sorted(d['_files']):
+            result.append(' ' * indent + f)
+    
+    for k in sorted(d.keys()):
+        if k != '_files':
+            result.append(' ' * indent + k + '/')
+            result.extend(format_tree(d[k], indent + 2))
+    return result
 
 def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
     """
@@ -202,19 +328,7 @@ def create_fallback_architecture(project_name: str, file_manifest: dict) -> str:
             current['_files'] = []
         current['_files'].append(parts[-1])
     
-    # Format the tree
-    def format_tree(d, indent=0):
-        result = []
-        if '_files' in d:
-            for f in sorted(d['_files']):
-                result.append(' ' * indent + f)
-        
-        for k in sorted(d.keys()):
-            if k != '_files':
-                result.append(' ' * indent + k + '/')
-                result.extend(format_tree(d[k], indent + 2))
-        return result
-    
+    # Use the module-level format_tree function
     tree_lines = format_tree(dirs)
     content += '\n'.join(tree_lines[:MAX_TREE_LINES])  # Limit to configured number of lines
     if len(tree_lines) > MAX_TREE_LINES:
@@ -287,5 +401,199 @@ def analyze_basic_structure(file_manifest: dict) -> Dict[str, str]:
     sections["Project Patterns"] = project_patterns
     
     return sections
+
+def build_dependency_graph_from_manifest(file_manifest: dict) -> nx.DiGraph:
+    """
+    Build a dependency graph from the file manifest.
+    
+    This function analyzes the file manifest to create a directed graph
+    representing dependencies between components.
+    
+    Args:
+        file_manifest: Dictionary of files in the repository
+        
+    Returns:
+        nx.DiGraph: A directed graph representing component dependencies
+    """
+    graph = nx.DiGraph()
+    
+    # Detect if this is a Java project
+    is_java_project = any(str(path).endswith('.java') for path in file_manifest.keys())
+    
+    if is_java_project:
+        # For Java projects, focus on package structure
+        return build_java_dependency_graph(file_manifest)
+    else:
+        # For other projects, use the generic approach
+        return build_generic_dependency_graph(file_manifest)
+
+def build_java_dependency_graph(file_manifest: dict) -> nx.DiGraph:
+    """
+    Build a dependency graph specifically for Java projects.
+    
+    Args:
+        file_manifest: Dictionary of files in the repository
+        
+    Returns:
+        nx.DiGraph: A directed graph representing Java component dependencies
+    """
+    graph = nx.DiGraph()
+    
+    # Map of component name to files
+    components = {}
+    
+    # Extract Java package structure
+    for path_obj, info in file_manifest.items():
+        path = str(path_obj).replace('\\', '/')
+        
+        # Only process Java files
+        if not path.endswith('.java'):
+            continue
+            
+        # Extract component from path
+        if 'src/main/java' in path or 'src\\main\\java' in path:
+            parts = path.split('/')
+            if '/' not in path:
+                parts = path.split('\\')
+                
+            # Find the index of 'java' in the path
+            try:
+                idx = parts.index('java')
+                if idx + 1 < len(parts):
+                    # In a typical Java project, the component is often the first package after the base package
+                    # e.g., com.example.component
+                    if len(parts) > idx + 4:
+                        component_name = parts[idx + 4]  # The component name
+                        
+                        # Add component to our tracking
+                        if component_name not in components:
+                            components[component_name] = []
+                        components[component_name].append(path)
+            except ValueError:
+                # 'java' not in path
+                pass
+    
+    # If no components found, try a simpler approach
+    if not components:
+        for path_obj in file_manifest.keys():
+            path = str(path_obj).replace('\\', '/')
+            if path.endswith('.java'):
+                parts = path.split('/')
+                if len(parts) > 3:  # Assuming some depth in the package structure
+                    component_name = parts[3] if len(parts) > 3 else parts[-2]
+                    if component_name not in components:
+                        components[component_name] = []
+                    components[component_name].append(path)
+    
+    # Add components as nodes
+    for component, files in components.items():
+        # Skip components with too few files
+        if len(files) < 2:
+            continue
+            
+        # Add node with file count as an attribute
+        graph.add_node(component, files=len(files))
+    
+    # For Java Spring projects, create relationships based on common patterns
+    common_patterns = {
+        'controller': ['service', 'dto', 'model'],
+        'service': ['repository', 'model', 'dto', 'domain'],
+        'repository': ['entity', 'model'],
+        'config': ['service'],
+        'util': [],  # Utilities are usually depended upon, not depending on others
+        'exception': ['controller', 'service'],
+        'domain': ['model', 'entity'],
+        'dto': ['model', 'entity'],
+        'model': ['entity'],
+        'kafka': ['service', 'model'],
+        'client': ['service', 'dto'],
+        'proxy': ['service', 'client', 'model']
+    }
+    
+    # Add edges based on common patterns
+    for component in list(graph.nodes()):
+        lower_component = component.lower()
+        
+        # Find matching pattern
+        for pattern, dependencies in common_patterns.items():
+            if pattern in lower_component:
+                for dep_pattern in dependencies:
+                    # Find components matching the dependency pattern
+                    for potential_dep in list(graph.nodes()):
+                        if dep_pattern in potential_dep.lower() and potential_dep != component:
+                            graph.add_edge(component, potential_dep)
+    
+    return graph
+
+def build_generic_dependency_graph(file_manifest: dict) -> nx.DiGraph:
+    """
+    Build a dependency graph for non-Java projects.
+    
+    Args:
+        file_manifest: Dictionary of files in the repository
+        
+    Returns:
+        nx.DiGraph: A directed graph representing component dependencies
+    """
+    graph = nx.DiGraph()
+    
+    # Extract main components (directories)
+    components = set()
+    for path in file_manifest.keys():
+        parts = str(path).replace('\\', '/').split('/')
+        if len(parts) > 1:
+            # Add first-level directory as a component
+            components.add(parts[0])
+            
+            # If it's a deeper structure, add second-level directory too
+            if len(parts) > 2:
+                components.add(f"{parts[0]}/{parts[1]}")
+    
+    # Add components as nodes
+    for component in components:
+        graph.add_node(component)
+    
+    # Infer dependencies based on imports (simplified approach)
+    for path, info in file_manifest.items():
+        parts = str(path).replace('\\', '/').split('/')
+        if len(parts) < 2:
+            continue
+            
+        # Get the component for this file
+        component = parts[0]
+        
+        # Check if the file has imports
+        imports = getattr(info, 'imports', [])
+        if imports:
+            for imported in imports:
+                # Try to map the import to a component
+                for potential_component in components:
+                    if potential_component in imported and component != potential_component:
+                        graph.add_edge(component, potential_component)
+                        break
+    
+    # If the graph is still empty, create some basic relationships
+    # based on common architectural patterns
+    if len(graph.edges()) == 0:
+        common_components = {
+            'src': ['lib', 'utils', 'helpers'],
+            'app': ['src', 'utils', 'components'],
+            'controllers': ['models', 'services'],
+            'services': ['models', 'repositories'],
+            'views': ['controllers', 'components'],
+            'components': ['utils', 'helpers'],
+            'api': ['services', 'controllers'],
+            'test': ['src', 'app', 'lib']
+        }
+        
+        for component in components:
+            base_component = component.split('/')[0]
+            if base_component in common_components:
+                for dependency in common_components[base_component]:
+                    for potential_component in components:
+                        if dependency in potential_component and component != potential_component:
+                            graph.add_edge(component, potential_component)
+    
+    return graph
 
 # End of file
