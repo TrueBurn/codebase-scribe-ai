@@ -328,6 +328,41 @@ def add_ai_attribution_to_files(files: List[Path]) -> None:
             # Log error and continue
             logging.error(f"Error adding attribution to {file}: {e}")
 
+def fix_malformed_headings(content: str) -> str:
+    """Fix malformed headings in markdown content.
+    
+    This function fixes headings that have extra # characters, like "# # Heading"
+    instead of "## Heading".
+    
+    Args:
+        content: Markdown content to fix
+        
+    Returns:
+        Fixed markdown content
+    """
+    # Fix headings with extra # characters (e.g., "# # Heading" -> "## Heading")
+    lines = content.split('\n')
+    fixed_lines = []
+    
+    for line in lines:
+        # Check for malformed headings like "# # Heading"
+        if line.startswith('# #'):
+            # Count the number of # characters
+            count = 0
+            for char in line:
+                if char == '#':
+                    count += 1
+                elif char != ' ':
+                    break
+            
+            # Replace with the correct number of # characters
+            fixed_line = '#' * count + line[count:]
+            fixed_lines.append(fixed_line)
+        else:
+            fixed_lines.append(line)
+    
+    return '\n'.join(fixed_lines)
+
 async def main():
     """Main entry point for the codebase-scribe tool."""
     parser = argparse.ArgumentParser(description='Generate documentation for a code repository')
@@ -537,7 +572,8 @@ async def main():
                 file_summaries=file_summaries,
                 config=config,
                 analyzer=analyzer,
-                output_dir=str(output_dir)
+                output_dir=str(output_dir),
+                architecture_file_exists=True  # Set to True since we're generating architecture file
             )
             progress.update(1)
         
@@ -559,6 +595,9 @@ async def main():
         
         # Create docs directory if it doesn't exist
         os.makedirs(repo_path / "docs", exist_ok=True)
+        
+        # Fix malformed headings in README content
+        readme_content = fix_malformed_headings(readme_content)
         
         # Write README
         print(f"\nWriting README to {readme_path}")
