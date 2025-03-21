@@ -432,8 +432,15 @@ Contributions are welcome! Please read our [Contributing Guide](docs/CONTRIBUTIN
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
 ## Development Notes
+
+### Configuration Migration
+
+> **⚠️ IN PROGRESS ⚠️**
+>
+> We are currently migrating from dictionary-based configuration to a config class system.
+>
+> **TODO:** Complete the migration and decommission the old dictionary config approach.
 
 ### Bytecode Caching
 
@@ -442,6 +449,7 @@ Python bytecode caching is currently disabled for development purposes. To re-en
 1. Remove `sys.dont_write_bytecode = True` from `codebase_scribe.py`
 2. Or unset the `PYTHONDONTWRITEBYTECODE` environment variable
 
+This should be re-enabled before deploying to production for better performance.
 This should be re-enabled before deploying to production for better performance.
 
 ## Cache Management
