@@ -176,10 +176,13 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
         # Look for package.json files (JavaScript/Node.js)
         for path, info in file_manifest.items():
             path_str = str(path)
-            if path_str.endswith('package.json') and not info.is_binary:
+            # Check if info is a dictionary or an object with is_binary attribute
+            is_binary = info.get('is_binary', False) if isinstance(info, dict) else getattr(info, 'is_binary', False)
+            if path_str.endswith('package.json') and not is_binary:
                 package_json_count += 1
                 try:
-                    content = info.content
+                    # Get content from either a dictionary or an object
+                    content = info.get('content', '') if isinstance(info, dict) else getattr(info, 'content', '')
                     if content:
                         # Check if content is a string
                         if not isinstance(content, str):
@@ -222,7 +225,9 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
         # Look for requirements.txt files (Python)
         for path, info in file_manifest.items():
             path_str = str(path)
-            if path_str.endswith('requirements.txt') and not info.is_binary:
+            # Check if info is a dictionary or an object with is_binary attribute
+            is_binary = info.get('is_binary', False) if isinstance(info, dict) else getattr(info, 'is_binary', False)
+            if path_str.endswith('requirements.txt') and not is_binary:
                 requirements_txt_count += 1
                 try:
                     content = info.content
@@ -247,10 +252,13 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
         # Look for .csproj files (C#)
         for path, info in file_manifest.items():
             path_str = str(path)
-            if path_str.endswith('.csproj') and not info.is_binary:
+            # Check if info is a dictionary or an object with is_binary attribute
+            is_binary = info.get('is_binary', False) if isinstance(info, dict) else getattr(info, 'is_binary', False)
+            if path_str.endswith('.csproj') and not is_binary:
                 csproj_count += 1
                 try:
-                    content = info.content
+                    # Get content from either a dictionary or an object
+                    content = info.get('content', '') if isinstance(info, dict) else getattr(info, 'content', '')
                     if content:
                         # Check if content is a string
                         if not isinstance(content, str):
@@ -272,10 +280,13 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
         # Look for packages.config files (C#)
         for path, info in file_manifest.items():
             path_str = str(path)
-            if path_str.endswith('packages.config') and not info.is_binary:
+            # Check if info is a dictionary or an object with is_binary attribute
+            is_binary = info.get('is_binary', False) if isinstance(info, dict) else getattr(info, 'is_binary', False)
+            if path_str.endswith('packages.config') and not is_binary:
                 packages_config_count += 1
                 try:
-                    content = info.content
+                    # Get content from either a dictionary or an object
+                    content = info.get('content', '') if isinstance(info, dict) else getattr(info, 'content', '')
                     if content:
                         # Check if content is a string
                         if not isinstance(content, str):
@@ -297,10 +308,13 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
         # Look for pom.xml files (Java/Maven)
         for path, info in file_manifest.items():
             path_str = str(path)
-            if path_str.endswith('pom.xml') and not info.is_binary:
+            # Check if info is a dictionary or an object with is_binary attribute
+            is_binary = info.get('is_binary', False) if isinstance(info, dict) else getattr(info, 'is_binary', False)
+            if path_str.endswith('pom.xml') and not is_binary:
                 pom_xml_count += 1
                 try:
-                    content = info.content
+                    # Get content from either a dictionary or an object
+                    content = info.get('content', '') if isinstance(info, dict) else getattr(info, 'content', '')
                     if content:
                         # Check if content is a string
                         if not isinstance(content, str):
@@ -323,10 +337,13 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
         # Look for build.gradle files (Java/Gradle)
         for path, info in file_manifest.items():
             path_str = str(path)
-            if path_str.endswith('build.gradle') and not info.is_binary:
+            # Check if info is a dictionary or an object with is_binary attribute
+            is_binary = info.get('is_binary', False) if isinstance(info, dict) else getattr(info, 'is_binary', False)
+            if path_str.endswith('build.gradle') and not is_binary:
                 gradle_count += 1
                 try:
-                    content = info.content
+                    # Get content from either a dictionary or an object
+                    content = info.get('content', '') if isinstance(info, dict) else getattr(info, 'content', '')
                     if content:
                         # Check if content is a string
                         if not isinstance(content, str):
@@ -351,10 +368,13 @@ def find_common_dependencies(file_manifest: Dict[str, Dict], debug: bool = False
         # Look for build.gradle.kts files (Kotlin DSL)
         for path, info in file_manifest.items():
             path_str = str(path)
-            if path_str.endswith('build.gradle.kts') and not info.is_binary:
+            # Check if info is a dictionary or an object with is_binary attribute
+            is_binary = info.get('is_binary', False) if isinstance(info, dict) else getattr(info, 'is_binary', False)
+            if path_str.endswith('build.gradle.kts') and not is_binary:
                 gradle_count += 1
                 try:
-                    content = info.content
+                    # Get content from either a dictionary or an object
+                    content = info.get('content', '') if isinstance(info, dict) else getattr(info, 'content', '')
                     if content:
                         # Check if content is a string
                         if not isinstance(content, str):
